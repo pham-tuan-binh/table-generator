@@ -2,7 +2,7 @@
 // extruded per member, boxes, cylinders. Shared by the viewer and the mesh exporters
 // (STL / GLB / USD), so what you see is what the simulator gets.
 import * as THREE from 'three';
-import { ProfileSpec } from './params.ts';
+import { ProfileSpec, PROFILES } from './params.ts';
 import { Model, Part, Box, Cyl, Member, V3, memberBox } from './model.ts';
 
 export function profileShape(prof: ProfileSpec): THREE.Shape {
@@ -62,8 +62,8 @@ export function cylGeometry(c: Cyl, seg = 28): THREE.BufferGeometry {
 // every solid of a part as geometry, design coordinates
 // detailed = the real T-slot profile; plain = a square bar (the viewer's illustration style,
 // where slot edges would ink the whole bar)
-export function partGeometries(part: Part, model: Model, detailed = true): THREE.BufferGeometry[] {
-  if (part.member) return [detailed ? memberGeometry(part.member, model.prof) : boxGeometry(memberBox(part.member, model.s))];
+export function partGeometries(part: Part, _model: Model, detailed = true): THREE.BufferGeometry[] {
+  if (part.member) return [detailed ? memberGeometry(part.member, PROFILES[part.member.prof]) : boxGeometry(memberBox(part.member))];
   return [...part.boxes.map(b => boxGeometry(b)), ...part.cyls.map(c => cylGeometry(c))];
 }
 

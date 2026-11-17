@@ -52,7 +52,9 @@ export function cameraFrames(c: CameraPose) {
 }
 
 export const safe = (s: string) => s.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(\d)/, '_$1') || 'cam';
-export const lengthsOf = (m: Model) => [...new Set(m.parts.filter(p => p.member).map(p => Math.round(p.member!.length * 10) / 10))];
-export const meshName = (m: Model, L: number) => `profile_${m.prof.id}_${String(L).replace('.', 'p')}`;
+// every profile and length used, for one scaled mesh asset each
+export const lengthsOf = (m: Model) => [...new Set(m.parts.filter(p => p.member).map(p => `${p.member!.prof}|${Math.round(p.member!.length * 10) / 10}`))].map(k => { const [prof, L] = k.split('|'); return { prof, L: Number(L) }; });
+export const meshName = (prof: string, L: number) => `profile_${prof}_${String(L).replace('.', 'p')}`;
+export const profilesUsed = (m: Model) => [...new Set(m.parts.filter(p => p.member).map(p => p.member!.prof))];
 // the profile meshes are 1 m long and centred on the origin, so they sit at the member's middle
 export const memberMid = (pt: Part): V3 => { const mb = pt.member!, ax: V3 = [mb.axis === 'x' ? 1 : 0, mb.axis === 'y' ? 1 : 0, mb.axis === 'z' ? 1 : 0]; return vec.add(mb.a, vec.mul(ax, mb.length / 2)); };

@@ -1,67 +1,99 @@
 // Bill of materials, cut list (with stock nesting) and design checks from the model.
 import { Model, Part, round } from './model.ts';
-import { material, cameraPreset } from './params.ts';
+import { material, cameraPreset, PROFILES, ProfileId } from './params.ts';
+import { BRACKET_PRICE, boardSpan } from './structure.ts';
 
 export interface BomLine { group: string; item: string; spec: string; qty: number; unit: string; note?: string }
-export interface Cut { mark: string; length: number; qty: number; ids: string[]; names: string[]; taps: string }
-export interface StockBar { cuts: { mark: string; length: number }[]; waste: number }
+export interface Cut { mark: string; prof: ProfileId; length: number; qty: number; ids: string[]; names: string[]; taps: string }
+export interface StockBar { prof: ProfileId; cuts: { mark: string; length: number }[]; waste: number }
 export interface Check { ok: boolean; level: 'error' | 'warn' | 'info'; text: string }
 
+// one line per profile and length, largest profile first, longest first
 export function cutList(m: Model): Cut[] {
-  const groups = new Map<number, Part[]>();
+  const groups = new Map<string, Part[]>();
   for (const pt of m.parts) if (pt.kind === 'member') {
-    const L = round(pt.member!.length);
-    groups.set(L, [...(groups.get(L) || []), pt]);
+    const key = `${pt.member!.prof}|${round(pt.member!.length)}`;
+    groups.set(key, [...(groups.get(key) || []), pt]);
   }
-  return [...groups.entries()].sort((a, b) => b[0] - a[0]).map(([length, pts], i) => ({
-    mark: String.fromCharCode(65 + i), length, qty: pts.length, ids: pts.map(p => p.id), names: pts.map(p => p.name),
-    taps: pts[0].id.startsWith('post') ? `${m.prof.endTap} tap, bottom end` : '',
-  }));
+  return [...groups.entries()]
+    .map(([k, pts]) => ({ prof: k.split('|')[0] as ProfileId, length: Number(k.split('|')[1]), pts }))
+    .sort((a, b) => PROFILES[b.prof].s - PROFILES[a.prof].s || b.length - a.length)
+    .map(({ prof, length, pts }, i) => ({
+      mark: String.fromCharCode(65 + i), prof, length, qty: pts.length, ids: pts.map(p => p.id), names: pts.map(p => p.name),
+      taps: pts[0].id.startsWith('leg') ? `${PROFILES[prof].endTap} tap, bottom end` : '',
+    }));
 }
 export const markOf = (m: Model) => Object.fromEntries(cutList(m).flatMap(c => c.ids.map(id => [id, c.mark])));
 
-// first-fit decreasing into stock bars, kerf between cuts
+// first-fit decreasing into stock bars of each profile, kerf between cuts
 export function nest(m: Model): { bars: StockBar[]; tooLong: string[] } {
   const L = m.p.stockLength;
   if (!L) return { bars: [], tooLong: [] };
-  const pieces = cutList(m).flatMap(c => Array.from({ length: c.qty }, () => ({ mark: c.mark, length: c.length }))).sort((a, b) => b.length - a.length);
   const bars: StockBar[] = [], tooLong: string[] = [];
+  const used = (b: StockBar) => b.cuts.reduce((a, c) => a + c.length, 0) + m.p.kerf * b.cuts.length;
+  const pieces = cutList(m).flatMap(c => Array.from({ length: c.qty }, () => ({ prof: c.prof, mark: c.mark, length: c.length }))).sort((a, b) => b.length - a.length);
   for (const pc of pieces) {
     if (pc.length > L) { tooLong.push(pc.mark); continue; }
-    const used = (b: StockBar) => b.cuts.reduce((a, c) => a + c.length, 0) + m.p.kerf * b.cuts.length;
-    const bar = bars.find(b => used(b) + pc.length <= L);
-    if (bar) bar.cuts.push(pc); else bars.push({ cuts: [pc], waste: 0 });
+    const bar = bars.find(b => b.prof === pc.prof && used(b) + pc.length <= L);
+    if (bar) bar.cuts.push(pc); else bars.push({ prof: pc.prof, cuts: [pc], waste: 0 });
   }
   for (const b of bars) b.waste = round(L - b.cuts.reduce((a, c) => a + c.length, 0) - m.p.kerf * (b.cuts.length - 1));
   return { bars, tooLong: [...new Set(tooLong)] };
 }
 
+// rough material cost: extrusion by the metre plus brackets
+export function cost(m: Model): number {
+  const ext = m.parts.filter(p => p.member).reduce((a, p) => a + (p.member!.length / 1000) * PROFILES[p.member!.prof].price, 0);
+  return ext + m.parts.filter(p => p.id.startsWith('bracket_')).length * BRACKET_PRICE + 4 * 4 + 8 * BRACKET_PRICE;
+}
+
+const SCREW: Record<string, string> = { M5: 'M5×10', M6: 'M6×12', M8: 'M8×16', '1/4-20': '1/4-20 × 1/2"' };
+
 export function bom(m: Model): BomLine[] {
-  const p = m.p, prof = m.prof, out: BomLine[] = [];
-  const count = (pre: string) => m.parts.filter(pt => pt.id.startsWith(pre)).length;
+  const p = m.p, out: BomLine[] = [];
+  const memberOf = (id: string) => m.parts.find(q => q.id === id)?.member;
   // extrusion
   const cuts = cutList(m);
-  const total = cuts.reduce((a, c) => a + c.length * c.qty, 0);
   if (p.stockLength) {
     const { bars } = nest(m);
-    out.push({ group: 'Extrusion', item: `${prof.id} T-slot extrusion, stock`, spec: `${p.stockLength} mm lengths`, qty: bars.length, unit: 'pc', note: `${round(total / 1000)} m used of ${round((bars.length * p.stockLength) / 1000)} m` });
-  } else for (const c of cuts) out.push({ group: 'Extrusion', item: `${prof.id} T-slot extrusion, cut to length`, spec: `${c.length} mm (mark ${c.mark})`, qty: c.qty, unit: 'pc', note: c.taps || undefined });
+    for (const id of [...new Set(bars.map(b => b.prof))]) {
+      const mine = bars.filter(b => b.prof === id), usedMm = mine.reduce((a, b) => a + b.cuts.reduce((x, c) => x + c.length, 0), 0);
+      out.push({ group: 'Extrusion', item: `${id} T-slot extrusion, stock`, spec: `${p.stockLength} mm lengths`, qty: mine.length, unit: 'pc', note: `${round(usedMm / 1000)} m used of ${round((mine.length * p.stockLength) / 1000)} m` });
+    }
+  } else for (const c of cuts) out.push({ group: 'Extrusion', item: `${c.prof} T-slot extrusion, cut to length`, spec: `${c.length} mm (mark ${c.mark})`, qty: c.qty, unit: 'pc', note: c.taps || undefined });
 
-  // brackets and fasteners
-  const corner = 4, lBr = count('bracket_');
-  const boardScrews = (['worktop', 'shelf', 'panel_roof'] as const).filter(id => m.parts.some(pt => pt.id === id))
-    .reduce((a, id) => a + (id === 'panel_roof' ? 4 : 2 * Math.ceil(p.width / 300) + 2 * Math.ceil(p.depth / 300)), 0);
-  const camCount = m.cameras.length;
-  out.push({ group: 'Brackets', item: `3-way corner bracket (${prof.id})`, spec: 'hidden / inside type, top corners', qty: corner, unit: 'pc' });
-  if (lBr) out.push({ group: 'Brackets', item: `L bracket (${prof.id})`, spec: '2-hole inside corner bracket', qty: lBr, unit: 'pc' });
-  const bracketScrews = corner * 3 + lBr * 2;
-  out.push({ group: 'Fasteners', item: `${prof.screw} button-head screw`, spec: `${prof.screw === 'M5' ? 'M5×10' : prof.screw === 'M6' ? 'M6×12' : prof.screw === 'M8' ? 'M8×16' : '1/4-20 × 1/2"'}, for brackets`, qty: bracketScrews, unit: 'pc' });
-  if (boardScrews) out.push({ group: 'Fasteners', item: `${prof.screw} countersunk screw`, spec: `${prof.screw} × ${Math.ceil((Math.max(p.worktop ? p.worktopThk : 0, p.shelf ? p.shelfThk : 0, p.panelThk) + 8) / 5) * 5} mm, for boards`, qty: boardScrews, unit: 'pc' });
-  out.push({ group: 'Fasteners', item: prof.tnut, spec: 'drop-in (spring) type, so they fit after assembly', qty: bracketScrews + boardScrews + camCount * 2, unit: 'pc' });
+  // brackets, and the screws and T-nuts each one needs, counted by the slot they go into
+  const nuts: Record<string, number> = {};
+  const nut = (prof: ProfileId, n: number) => (nuts[prof] = (nuts[prof] || 0) + n);
+  const lb: Record<string, number> = {};
+  for (const br of m.parts.filter(q => q.id.startsWith('bracket_'))) {
+    const host = memberOf(br.id.replace(/^bracket_/, '').replace(/_[01]$/, ''))!;
+    lb[host.prof] = (lb[host.prof] || 0) + 1;
+    nut(host.prof, 1);
+    // the other leg of the bracket goes into a leg, or into the rail it meets
+    nut(br.id.includes('rail_table') ? m.profs.legs.id : br.id.includes('rail_lower') ? m.profs.legs.id : br.id.includes('bar_overhead') ? m.profs.box.id : br.id.includes('shelf_support') ? m.profs.lower.id : m.profs.rails.id, 1);
+  }
+  // box posts stand on the worktop rails: two L brackets each
+  lb[m.profs.box.id] = (lb[m.profs.box.id] || 0) + 8;
+  nut(m.profs.box.id, 8); nut(m.profs.rails.id, 8);
+  out.push({ group: 'Brackets', item: `3-way corner bracket (${m.profs.box.id})`, spec: 'hidden / inside type, top corners of the box', qty: 4, unit: 'pc' });
+  nut(m.profs.box.id, 12);
+  for (const [id, n] of Object.entries(lb)) out.push({ group: 'Brackets', item: `L bracket (${id})`, spec: '2-hole inside corner bracket', qty: n, unit: 'pc' });
+  // boards screw into the rails under them
+  const boardN = 2 * Math.ceil(p.width / 300) + 2 * Math.ceil(p.depth / 300);
+  if (p.worktop) nut(m.profs.rails.id, boardN);
+  if (p.shelf) nut(m.profs.lower.id, boardN);
+  if (p.panels.roof) nut(m.profs.box.id, 4);
+  for (const c of m.cameras) { const mb = memberOf(c.spec.mount); if (mb) nut(mb.prof, 2); }
+  for (const [id, n] of Object.entries(nuts).sort()) {
+    const pr = PROFILES[id as ProfileId];
+    out.push({ group: 'Fasteners', item: pr.tnut, spec: `drop-in, with ${SCREW[pr.screw]} button-head screws (countersunk under boards)`, qty: n, unit: 'pc' });
+  }
 
   // base
-  if (p.base === 'feet') out.push({ group: 'Base', item: 'Levelling foot', spec: `${prof.endTap} threaded stud, Ø40 base, ~${30} mm tall`, qty: 4, unit: 'pc' });
-  else out.push({ group: 'Base', item: 'Swivel caster with brake', spec: `Ø${p.casterWheel} mm wheel, ${prof.endTap} threaded stem`, qty: 4, unit: 'pc', note: 'braked on all four' });
+  const tap = m.profs.legs.endTap;
+  if (p.base === 'feet') out.push({ group: 'Base', item: 'Levelling foot', spec: `${tap} threaded stud, Ø40 base, ~30 mm tall`, qty: 4, unit: 'pc' });
+  else out.push({ group: 'Base', item: 'Swivel caster with brake', spec: `Ø${p.casterWheel} mm wheel, ${tap} threaded stem`, qty: 4, unit: 'pc', note: 'braked on all four' });
 
   // sheet goods
   for (const pt of m.parts.filter(q => q.kind === 'panel')) {
@@ -73,27 +105,25 @@ export function bom(m: Model): BomLine[] {
     const pre = cameraPreset(c.spec.preset);
     out.push({ group: 'Cameras', item: `Camera "${c.spec.name}"`, spec: `${pre.id === 'custom' ? 'Custom' : pre.name}, ${c.spec.width}×${c.spec.height}`, qty: 1, unit: 'pc' });
   }
-  if (camCount) out.push({ group: 'Cameras', item: `Camera mount for ${prof.id} slot`, spec: `1/4-20 tripod screw, clamps with 2 × ${prof.screw} into T-nuts`, qty: camCount, unit: 'pc' });
+  if (m.cameras.length) out.push({ group: 'Cameras', item: 'Camera mount for T-slot', spec: '1/4-20 tripod screw, clamps with 2 screws into T-nuts', qty: m.cameras.length, unit: 'pc' });
   return out;
 }
 
 export function checks(m: Model): Check[] {
-  const p = m.p, s = m.s, out: Check[] = [];
+  const p = m.p, out: Check[] = [], box = m.profs.box;
   const c = (ok: boolean, level: Check['level'], text: string) => out.push({ ok, level, text });
   if (p.stockLength) {
     const { tooLong } = nest(m);
     c(!tooLong.length, 'error', tooLong.length ? `Pieces ${tooLong.join(', ')} are longer than the ${p.stockLength} mm stock. Use longer stock or cut to length.` : `Every piece fits the ${p.stockLength} mm stock.`);
   }
-  c(p.panelThk <= m.prof.slot - 0.3, 'error', p.panelThk <= m.prof.slot - 0.3 ? `${p.panelThk} mm walls fit the ${m.prof.slot} mm slot.` : `${p.panelThk} mm walls do not fit the ${m.prof.slot} mm slot of ${m.prof.id}. Use ${Math.floor((m.prof.slot - 0.3) * 2) / 2} mm or thinner.`);
+  c(p.panelThk <= box.slot - 0.3, 'error', p.panelThk <= box.slot - 0.3 ? `${p.panelThk} mm walls fit the ${box.slot} mm slot.` : `${p.panelThk} mm walls do not fit the ${box.slot} mm slot of the ${box.id} box frame. Use ${Math.floor((box.slot - 0.3) * 2) / 2} mm or thinner.`);
   const ratio = m.topZ / Math.min(p.width, p.depth);
   c(ratio <= 2.5, 'warn', ratio <= 2.5 ? `Height is ${ratio.toFixed(1)}× the narrowest side: stable.` : `Height is ${ratio.toFixed(1)}× the narrowest side: it can tip. Widen the base or fix it to the wall.`);
   const z = m.sizing;
-  c(z.ok, 'error', z.ok ? `${m.prof.id} carries ${p.load} kg: rails sag ${z.sag.toFixed(1)} mm, the top moves ${z.sway.toFixed(1)} mm, posts have a safety factor of ${z.buckling.toFixed(0)}.` : `Even 4040 is not enough for ${p.load} kg at this size (sag ${z.sag.toFixed(1)} of ${z.sagLimit.toFixed(1)} mm allowed, sway ${z.sway.toFixed(1)} mm). Add worktop supports or the lower rails, or make it smaller.`);
+  c(z.ok, 'error', z.ok ? `Carries ${p.load} kg: rails sag ${z.sag.toFixed(1)} mm, the worktop moves ${z.sway.toFixed(1)} mm, legs have a safety factor of ${z.buckling.toFixed(0)}.` : `Even 4040 is not enough for ${p.load} kg at this size (sag ${z.sag.toFixed(1)} of ${z.sagLimit.toFixed(1)} mm allowed, sway ${z.sway.toFixed(1)} mm). Add the lower rails or make it smaller.`);
   if (p.base === 'casters') c(p.lowerRing === 'full', 'warn', p.lowerRing === 'full' ? 'Casters with a full lower ring: the legs are tied together.' : 'Casters without a full lower ring load the post ends sideways. Add the full lower ring.');
-  const span = p.width - 2 * s;
-  const sup = m.supportCount, free = span / (sup + 1);
-  if (p.worktop) c(free <= 650 || p.worktopThk >= 18, 'warn', free <= 650 || p.worktopThk >= 18 ? `Worktop spans ${round(free)} mm between supports.` : `Worktop spans ${round(free)} mm between supports at ${p.worktopThk} mm: it will flex under an arm. Add supports or a thicker board.`);
-  if (p.shelf) c(p.lowerHeight >= 80 + p.shelfThk, 'info', `Shelf is ${round(p.tableHeight - p.lowerHeight - (p.worktop ? 0 : 0) - s)} mm clear below the worktop rails.`);
+  const free = (p.width - 2 * m.profs.legs.s) / (m.supportCount + 1), lim = boardSpan(p.worktopThk);
+  if (p.worktop) c(free <= lim, 'warn', free <= lim ? `Worktop spans ${round(free)} mm between supports.` : `Worktop spans ${round(free)} mm between supports at ${p.worktopThk} mm: it will flex under an arm. Add supports or a thicker board.`);
   for (const cam of m.cameras) {
     if (!cam.valid) { c(false, 'error', `Camera "${cam.spec.name}": ${cam.note}.`); continue; }
     const [lo, hi] = m.bbox, inside = cam.pos.every((v, i) => v >= lo[i] - 300 && v <= hi[i] + 300);

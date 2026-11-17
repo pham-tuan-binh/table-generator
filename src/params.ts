@@ -32,7 +32,7 @@ export interface Params {
   depth: number;          // Y, outside
   tableHeight: number;    // floor to the top of the worktop rails
   boxHeight: number;      // top of the worktop rails to the top of the box
-  profile: ProfileId;     // chosen from the load, see structure.ts
+  profile: ProfileId;     // unused: each part of the frame is sized from the load, see structure.ts
   load: number;           // kg the worktop is rated for
   shelfLoad: number;      // kg the shelf is rated for
   base: BaseType;
@@ -64,13 +64,14 @@ export interface Params {
 export interface ProfileSpec {
   id: ProfileId; name: string; s: number; slot: number; slotDepth: number; engage: number;
   screw: string; endTap: string; kgPerM: number; tnut: string;
+  price: number;   // USD per metre, rough, cut to length
 }
 
 export const PROFILES: Record<ProfileId, ProfileSpec> = {
-  '2020': { id: '2020', name: '2020 T-slot (20×20 mm, 6 mm slot)', s: 20, slot: 6.2, slotDepth: 6, engage: 5, screw: 'M5', endTap: 'M5', kgPerM: 0.5, tnut: 'M5 drop-in T-nut (6 mm slot)' },
-  '3030': { id: '3030', name: '3030 T-slot (30×30 mm, 8 mm slot)', s: 30, slot: 8.2, slotDepth: 9, engage: 7, screw: 'M6', endTap: 'M8', kgPerM: 0.9, tnut: 'M6 drop-in T-nut (8 mm slot)' },
-  '4040': { id: '4040', name: '4040 T-slot (40×40 mm, 8 mm slot)', s: 40, slot: 8.2, slotDepth: 12, engage: 8, screw: 'M8', endTap: 'M8', kgPerM: 1.5, tnut: 'M8 drop-in T-nut (8 mm slot)' },
-  '1010': { id: '1010', name: '1010 T-slot (1×1 in, 1/4-20)', s: 25.4, slot: 6.6, slotDepth: 7, engage: 5, screw: '1/4-20', endTap: '1/4-20', kgPerM: 0.75, tnut: '1/4-20 drop-in T-nut (10 series)' },
+  '2020': { id: '2020', name: '2020 T-slot (20×20 mm, 6 mm slot)', s: 20, slot: 6.2, slotDepth: 6, engage: 5, screw: 'M5', endTap: 'M5', kgPerM: 0.5, tnut: 'M5 drop-in T-nut (6 mm slot)', price: 7 },
+  '3030': { id: '3030', name: '3030 T-slot (30×30 mm, 8 mm slot)', s: 30, slot: 8.2, slotDepth: 9, engage: 7, screw: 'M6', endTap: 'M8', kgPerM: 0.9, tnut: 'M6 drop-in T-nut (8 mm slot)', price: 12 },
+  '4040': { id: '4040', name: '4040 T-slot (40×40 mm, 8 mm slot)', s: 40, slot: 8.2, slotDepth: 12, engage: 8, screw: 'M8', endTap: 'M8', kgPerM: 1.5, tnut: 'M8 drop-in T-nut (8 mm slot)', price: 18 },
+  '1010': { id: '1010', name: '1010 T-slot (1×1 in, 1/4-20)', s: 25.4, slot: 6.6, slotDepth: 7, engage: 5, screw: '1/4-20', endTap: '1/4-20', kgPerM: 0.75, tnut: '1/4-20 drop-in T-nut (10 series)', price: 14 },
 };
 
 export interface MaterialSpec { id: string; name: string; density: number; thk: number; color: string; opacity?: number; cnc: boolean }

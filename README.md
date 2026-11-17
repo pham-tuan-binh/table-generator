@@ -21,7 +21,7 @@ The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examp
 
 ## Parameters
 
-- **Size and load:** width, depth, table height, box height, and the load the worktop (and shelf) must carry. You don't pick the extrusion. It is sized from the load: the smallest of 2020, 3030 and 4040 that keeps the worktop rails' sag within span/300, the sway at the worktop within 1 mm when an arm pushes back (15 % of the load sideways), and post buckling at a safety factor of 3 or more. The rules are in `src/structure.ts`. They are design aids, not certification.
+- **Size and load:** width, depth, table height, box height, and the load the worktop (and shelf) must carry. You don't pick extrusions. Each part of the frame is sized for what it carries, for the lowest cost. The legs are sized for sway and buckling. The worktop and shelf rails are sized for sag, together with how many support bars go under the board, because more short bars can beat thicker rails. The box (posts, top rails, camera bar) carries only walls and cameras, so it stays 2020. For example, 100 kg on a 1 m table gives 4040 legs, 3030 worktop rails with one support, 2020 shelf rails and a 2020 box. The rules are in `src/structure.ts`. They are design aids, not certification.
 - **Below the worktop:** storage shelf, lower reinforcement rails (all four sides, sides and back, or none), and supports under the worktop.
 - **Base:** levelling feet, or braked casters (Ø50 to Ø100).
 - **Box:** wall panels on any side plus a roof, and an overhead camera bar.
@@ -51,7 +51,7 @@ Pushing to `main` builds the site and deploys it to GitHub Pages (`.github/workf
 ```
 src/params.ts      inputs, limits, materials, profiles, camera presets, URL hash
 src/model.ts       params -> parts (members, panels, hardware, cameras), mass/inertia, build steps
-src/structure.ts   picks the extrusion from the rated load
+src/structure.ts   sizes legs, rails, supports and box from the rated load, cheapest first
 src/bom.ts         BOM, cut list, stock nesting, design checks
 src/geometry.ts    three.js geometry (T-slot profile, boxes, cylinders)
 src/world.ts       the 3D scene: lighting, picking, outlines, assembly timeline, explode, camera inset

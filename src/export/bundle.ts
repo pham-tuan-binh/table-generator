@@ -6,14 +6,14 @@ import { profileShape, partGeometries, mergeTriangles } from '../geometry.ts';
 import { urdf } from './urdf.ts';
 import { mjcf, mjcfScene } from './mjcf.ts';
 import { usda, stl } from './usd.ts';
-import { cameraFrames, f } from './common.ts';
+import { cameraFrames, f, profilesUsed } from './common.ts';
 import { bom, bomCsv, cutCsv, cutList, checks, nest } from '../bom.ts';
-import { material, PROFILES } from '../params.ts';
+import { material, PROFILES, ProfileId } from '../params.ts';
 
 export type Files = Record<string, string | ArrayBuffer | Uint8Array>;
 
-export function profileStl(m: Model): ArrayBuffer {
-  const g = new THREE.ExtrudeGeometry(profileShape(m.prof), { depth: 1000, bevelEnabled: false, curveSegments: 10 });
+export function profileStl(id: ProfileId): ArrayBuffer {
+  const g = new THREE.ExtrudeGeometry(profileShape(PROFILES[id]), { depth: 1000, bevelEnabled: false, curveSegments: 10 });
   g.translate(0, 0, -500);
   return stl(mergeTriangles([g]));
 }
@@ -89,12 +89,10 @@ export function readme(m: Model, link = ''): string {
 export function bundle(m: Model, link = ''): Files {
   const files: Files = {};
   files['urdf/frame.urdf'] = urdf(m);
-  files['urdf/meshes/profile_' + m.prof.id + '.stl'] = profileStl(m);
+  for (const id of profilesUsed(m)) for (const dir of ['urdf/meshes', 'mjcf/meshes', 'meshes']) files[`${dir}/profile_${id}.stl`] = profileStl(id);
   files['mjcf/frame.xml'] = mjcf(m);
   files['mjcf/scene.xml'] = mjcfScene();
-  files['mjcf/meshes/profile_' + m.prof.id + '.stl'] = profileStl(m);
   files['usd/frame.usda'] = usda(m);
-  files['meshes/profile_' + m.prof.id + '.stl'] = profileStl(m);
   files['meshes/frame.stl'] = stl(mergeTriangles(m.parts.flatMap(pt => partGeometries(pt, m))));
   files['cameras.json'] = JSON.stringify(cameraJson(m), null, 2) + '\n';
   files['bom.csv'] = bomCsv(m);

@@ -17,14 +17,14 @@ export function mjcf(m: Model, name = 'table_generator'): string {
     `  </default>`,
     `  <asset>`);
   for (const l of Object.values(L)) out.push(`    <material name="${l.name}" rgba="${fl(l.rgba, 4)}" specular="${f(l.metallic * 0.5, 2)}" shininess="${f(1 - l.roughness, 2)}"/>`);
-  for (const len of lengthsOf(m)) out.push(`    <mesh name="${meshName(m, len)}" file="profile_${m.prof.id}.stl" scale="1 1 ${f(len / 1000)}"/>`);
+  for (const { prof, L } of lengthsOf(m)) out.push(`    <mesh name="${meshName(prof, L)}" file="profile_${prof}.stl" scale="1 1 ${f(L / 1000)}"/>`);
   out.push(`  </asset>`, `  <worldbody>`, `    <body name="frame" pos="0 0 0">`,
     `      <inertial pos="${m3(m.com)}" mass="${f(m.mass, 3)}" fullinertia="${fl(m.inertia)}"/>`);
   for (const pt of m.parts) {
     if (pt.kind === 'camera') continue;
     const mat = L[pt.role].name;
     if (pt.member) {
-      out.push(`      <geom name="${pt.id}_visual" class="frame_visual" mesh="${meshName(m, Math.round(pt.member.length * 10) / 10)}" pos="${m3(memberMid(pt))}" quat="${fl(MEMBER_ROT[pt.member.axis].quat)}" material="${mat}"/>`);
+      out.push(`      <geom name="${pt.id}_visual" class="frame_visual" mesh="${meshName(pt.member.prof, Math.round(pt.member.length * 10) / 10)}" pos="${m3(memberMid(pt))}" quat="${fl(MEMBER_ROT[pt.member.axis].quat)}" material="${mat}"/>`);
       pt.boxes.forEach(b => out.push(`      <geom name="${pt.id}" class="frame_collision" type="box" pos="${m3(b.c)}" size="${m3(b.s.map(v => v / 2) as [number, number, number])}" material="${mat}"/>`));
       continue;
     }

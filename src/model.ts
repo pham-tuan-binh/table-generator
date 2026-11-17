@@ -1,7 +1,7 @@
 // Params -> the physical design: every extrusion, panel, bracket, foot and camera with its
 // pose, mass and the build step it is fitted in. Pure data, no DOM, so the page, the
 // exporters and the command-line generator all read the same model.
-import { Params, PROFILES, ProfileSpec, material, CASTERS, FOOT_HEIGHT, cameraPreset, CameraSpec, Face } from './params.ts';
+import { Params, PROFILES, ProfileSpec, ProfileId, material, CASTERS, FOOT_HEIGHT, cameraPreset, CameraSpec, Face } from './params.ts';
 import { sizeFrame, Sizing } from './structure.ts';
 
 export type V3 = [number, number, number];
@@ -10,7 +10,7 @@ export type Role = 'frame' | 'panel' | 'worktop' | 'shelf' | 'hw' | 'cam' | 'dar
 
 export interface Box { c: V3; s: V3 }
 export interface Cyl { a: V3; b: V3; r: number }
-export interface Member { axis: Axis; a: V3; length: number }   // centre line from a, along +axis
+export interface Member { axis: Axis; prof: ProfileId; a: V3; length: number }   // centre line from a, along +axis
 
 export interface Part {
   id: string;
@@ -44,8 +44,7 @@ export interface Step { n: number; title: string; tasks: string[]; check?: strin
 
 export interface Model {
   p: Params;
-  prof: ProfileSpec;
-  s: number;
+  profs: { legs: ProfileSpec; rails: ProfileSpec; lower: ProfileSpec; box: ProfileSpec };
   baseH: number;
   topZ: number;          // top of the box rails
   worktopZ: number;      // top of the worktop surface (or of the table rails without one)
@@ -71,84 +70,92 @@ const AX: Record<Axis, V3> = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 const FACE: Record<Face, V3> = { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+y': [0, 1, 0], '-y': [0, -1, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] };
 const D2R = Math.PI / 180;
 
-export function memberBox(m: Member, s: number): Box {
-  const ax = AX[m.axis], c = add(m.a, mul(ax, m.length / 2));
+export function memberBox(m: Member): Box {
+  const ax = AX[m.axis], c = add(m.a, mul(ax, m.length / 2)), s = PROFILES[m.prof].s;
   return { c, s: [m.axis === 'x' ? m.length : s, m.axis === 'y' ? m.length : s, m.axis === 'z' ? m.length : s] };
 }
 
 export function buildModel(input: Params): Model {
-  // the extrusion follows from the rated load, never from a picker
-  const sizing = sizeFrame(input), p: Params = { ...input, profile: sizing.profile };
-  const prof = PROFILES[p.profile], s = prof.s, e = prof.engage;
+  // each part of the frame is sized for what it carries (structure.ts), never picked
+  const sizing = sizeFrame(input), p: Params = { ...input, profile: sizing.legs };
+  const profs = { legs: PROFILES[sizing.legs], rails: PROFILES[sizing.rails], lower: PROFILES[sizing.lower], box: PROFILES[sizing.box] };
+  const sl = profs.legs.s, sr = profs.rails.s, sb = profs.box.s, e = profs.box.engage;
   const W = p.width, D = p.depth, Ht = p.tableHeight, Htot = p.tableHeight + p.boxHeight;
   const baseH = p.base === 'casters' ? CASTERS[p.casterWheel] : FOOT_HEIGHT;
-  const hx = W / 2 - s / 2, hy = D / 2 - s / 2;
   const parts: Part[] = [];
-  const memberPart = (id: string, name: string, m: Member, step: number, extra: Partial<Part> = {}): Part => {
+  const memberPart = (id: string, name: string, m: Member, step: number): Part => {
+    const pr = PROFILES[m.prof];
     const part: Part = {
-      id, name, kind: 'member', role: 'frame', step, member: m, boxes: [memberBox(m, s)], cyls: [],
-      mass: (prof.kgPerM * m.length) / 1000, spec: `${prof.id} × ${round(m.length)} mm`, collide: true, ...extra,
+      id, name, kind: 'member', role: 'frame', step, member: m, boxes: [memberBox(m)], cyls: [],
+      mass: (pr.kgPerM * m.length) / 1000, spec: `${pr.id} × ${round(m.length)} mm`, collide: true,
     };
     parts.push(part);
     return part;
   };
-
-  // ---- posts: one piece from the base to the top of the box
   const corners: Record<string, [number, number]> = { FL: [-1, -1], FR: [1, -1], BL: [-1, 1], BR: [1, 1] };
   const cornerName: Record<string, string> = { FL: 'front left', FR: 'front right', BL: 'back left', BR: 'back right' };
-  for (const [k, [sx, sy]] of Object.entries(corners))
-    memberPart(`post_${k}`, `Post, ${cornerName[k]}`, { axis: 'z', a: [sx * hx, sy * hy, baseH], length: Htot - baseH }, 2);
 
-  // ---- rings of rails between the posts; top of each ring at z
-  const ring = (level: string, label: string, z: number, sides: ('front' | 'back' | 'left' | 'right')[], stepY: number, stepX: number) => {
+  // ---- legs: floor to the worktop; box posts: worktop to the top, outer faces flush
+  for (const [k, [sx, sy]] of Object.entries(corners)) {
+    memberPart(`leg_${k}`, `Leg, ${cornerName[k]}`, { axis: 'z', prof: sizing.legs, a: [sx * (W / 2 - sl / 2), sy * (D / 2 - sl / 2), baseH], length: Ht - baseH }, 2);
+    memberPart(`post_${k}`, `Box post, ${cornerName[k]}`, { axis: 'z', prof: sizing.box, a: [sx * (W / 2 - sb / 2), sy * (D / 2 - sb / 2), Ht], length: Htot - Ht }, 6);
+  }
+
+  // ---- rings of rails: outer faces flush with the frame, ends against the corner members
+  const ring = (level: string, label: string, z: number, prof: ProfileId, corner: number, sides: ('front' | 'back' | 'left' | 'right')[], stepY: number, stepX: number) => {
+    const sz = PROFILES[prof].s;
     for (const side of sides) {
       const isX = side === 'front' || side === 'back';
       const sgn = side === 'front' || side === 'left' ? -1 : 1;
       const m: Member = isX
-        ? { axis: 'x', a: [-W / 2 + s, sgn * hy, z - s / 2], length: W - 2 * s }
-        : { axis: 'y', a: [sgn * hx, -D / 2 + s, z - s / 2], length: D - 2 * s };
+        ? { axis: 'x', prof, a: [-W / 2 + corner, sgn * (D / 2 - sz / 2), z - sz / 2], length: W - 2 * corner }
+        : { axis: 'y', prof, a: [sgn * (W / 2 - sz / 2), -D / 2 + corner, z - sz / 2], length: D - 2 * corner };
       memberPart(`rail_${level}_${side}`, `${label} rail, ${side}`, m, isX ? stepX : stepY);
     }
   };
   const lowerSides: ('front' | 'back' | 'left' | 'right')[] = p.lowerRing === 'full' ? ['left', 'right', 'front', 'back'] : p.lowerRing === 'sides-back' ? ['left', 'right', 'back'] : [];
-  ring('lower', p.shelf ? 'Shelf' : 'Lower', p.lowerHeight, lowerSides, 3, 4);
-  ring('table', 'Worktop', Ht, ['left', 'right', 'front', 'back'], 3, 4);
-  ring('top', 'Top', Htot, ['left', 'right', 'front', 'back'], 7, 7);
+  ring('lower', p.shelf ? 'Shelf' : 'Lower', p.lowerHeight, sizing.lower, sl, lowerSides, 3, 4);
+  ring('table', 'Worktop', Ht, sizing.rails, sl, ['left', 'right', 'front', 'back'], 3, 4);
+  ring('top', 'Top', Htot, sizing.box, sb, ['left', 'right', 'front', 'back'], 7, 7);
 
   // ---- bars under the worktop, flush with the worktop rails, front to back
-  const autoSupports = Math.max(0, Math.ceil((W - 2 * s) / 450) - 1);
-  const nSup = p.supports < 0 ? autoSupports : p.supports;
+  const nSup = sizing.supports;
   for (let i = 0; i < nSup; i++) {
-    const x = -W / 2 + s + ((W - 2 * s) * (i + 1)) / (nSup + 1);
-    memberPart(`support_${i + 1}`, `Worktop support ${i + 1}`, { axis: 'y', a: [x, -D / 2 + s, Ht - s / 2], length: D - 2 * s }, 4);
+    const x = -W / 2 + sl + ((W - 2 * sl) * (i + 1)) / (nSup + 1);
+    memberPart(`support_${i + 1}`, `Worktop support ${i + 1}`, { axis: 'y', prof: sizing.rails, a: [x, -D / 2 + sr, Ht - sr / 2], length: D - 2 * sr }, 4);
+  }
+  // and under the shelf
+  for (let i = 0; i < sizing.shelfSupports; i++) {
+    const x = -W / 2 + sl + ((W - 2 * sl) * (i + 1)) / (sizing.shelfSupports + 1), sw = profs.lower.s;
+    memberPart(`shelf_support_${i + 1}`, `Shelf support ${i + 1}`, { axis: 'y', prof: sizing.lower, a: [x, -D / 2 + sw, p.lowerHeight - sw / 2], length: D - 2 * sw }, 4);
   }
   if (p.overheadBar)
-    memberPart('bar_overhead', 'Overhead camera bar', { axis: 'x', a: [-W / 2 + s, p.overheadBarY, Htot - s / 2], length: W - 2 * s }, 7);
+    memberPart('bar_overhead', 'Overhead camera bar', { axis: 'x', prof: sizing.box, a: [-W / 2 + sb, p.overheadBarY, Htot - sb / 2], length: W - 2 * sb }, 7);
 
-  // ---- boards resting on a ring, notched round the posts
-  const board = (id: string, name: string, role: Role, z: number, matId: string, t: number, step: number) => {
+  // ---- boards resting on a ring, notched round whatever stands at the corners
+  const board = (id: string, name: string, role: Role, z: number, matId: string, t: number, step: number, n: number) => {
     const mat = material(matId);
-    const outline: [number, number][] = [[s, 0], [W - s, 0], [W - s, s], [W, s], [W, D - s], [W - s, D - s], [W - s, D], [s, D], [s, D - s], [0, D - s], [0, s], [s, s]];
+    const outline: [number, number][] = [[n, 0], [W - n, 0], [W - n, n], [W, n], [W, D - n], [W - n, D - n], [W - n, D], [n, D], [n, D - n], [0, D - n], [0, n], [n, n]];
     const boxes: Box[] = [
-      { c: [0, 0, z + t / 2], s: [W, D - 2 * s, t] },
-      { c: [0, -D / 2 + s / 2, z + t / 2], s: [W - 2 * s, s, t] },
-      { c: [0, D / 2 - s / 2, z + t / 2], s: [W - 2 * s, s, t] },
+      { c: [0, 0, z + t / 2], s: [W, D - 2 * n, t] },
+      { c: [0, -D / 2 + n / 2, z + t / 2], s: [W - 2 * n, n, t] },
+      { c: [0, D / 2 - n / 2, z + t / 2], s: [W - 2 * n, n, t] },
     ];
-    const area = (W * D - 4 * s * s) / 1e6;
+    const area = (W * D - 4 * n * n) / 1e6;
     parts.push({ id, name, kind: 'panel', role, step, boxes, cyls: [], outline, plane: 'xy', thk: t, materialId: matId,
-      mass: area * (t / 1000) * mat.density, spec: `${mat.name}, ${t} mm, ${round(W)} × ${round(D)} notched ${round(s)} × ${round(s)}`, collide: true });
+      mass: area * (t / 1000) * mat.density, spec: `${mat.name}, ${t} mm, ${round(W)} × ${round(D)} notched ${round(n)} × ${round(n)}`, collide: true });
   };
-  if (p.shelf) board('shelf', 'Shelf board', 'shelf', p.lowerHeight, p.shelfMaterial, p.shelfThk, 5);
+  if (p.shelf) board('shelf', 'Shelf board', 'shelf', p.lowerHeight, p.shelfMaterial, p.shelfThk, 5, sl);
   const wt = p.worktop ? p.worktopThk : 0;
-  if (p.worktop) board('worktop', 'Worktop', 'worktop', Ht, p.worktopMaterial, p.worktopThk, 5);
+  if (p.worktop) board('worktop', 'Worktop', 'worktop', Ht, p.worktopMaterial, p.worktopThk, 5, sb);
 
-  // ---- box walls: sheets held in the post slots and the top rails' slots
+  // ---- box walls: sheets held in the box posts' and top rails' slots
   const pm = material(p.panelMaterial), t = p.panelThk;
-  const zb = p.worktop ? Ht + wt : Ht - e, zt = Htot - s + e;
+  const zb = Ht + wt, zt = Htot - sb + e;
   const wall = (face: 'back' | 'front' | 'left' | 'right') => {
     const isX = face === 'back' || face === 'front', sgn = face === 'front' || face === 'left' ? -1 : 1;
-    const span = (isX ? W : D) - 2 * s + 2 * e, h = zt - zb;
-    const c: V3 = isX ? [0, sgn * hy, (zb + zt) / 2] : [sgn * hx, 0, (zb + zt) / 2];
+    const span = (isX ? W : D) - 2 * sb + 2 * e, h = zt - zb;
+    const c: V3 = isX ? [0, sgn * (D / 2 - sb / 2), (zb + zt) / 2] : [sgn * (W / 2 - sb / 2), 0, (zb + zt) / 2];
     const sz: V3 = isX ? [span, t, h] : [t, span, h];
     parts.push({ id: `panel_${face}`, name: `${cap(face)} wall`, kind: 'panel', role: 'panel', step: 6, boxes: [{ c, s: sz }], cyls: [],
       outline: [[0, 0], [span, 0], [span, h], [0, h]], plane: isX ? 'xz' : 'yz', thk: t, materialId: pm.id,
@@ -160,46 +167,46 @@ export function buildModel(input: Params): Model {
       outline: [[0, 0], [W, 0], [W, D], [0, D]], plane: 'xy', thk: t, materialId: pm.id,
       mass: (W * D / 1e6) * (t / 1000) * pm.density, spec: `${pm.name}, ${t} mm, ${round(W)} × ${round(D)}`, collide: true });
 
-  // ---- feet or casters under each post
+  // ---- feet or casters under each leg
   for (const [k, [sx, sy]] of Object.entries(corners)) {
-    const x = sx * hx, y = sy * hy;
+    const x = sx * (W / 2 - sl / 2), y = sy * (D / 2 - sl / 2), tap = profs.legs.endTap;
     if (p.base === 'feet') {
       parts.push({ id: `foot_${k}`, name: `Levelling foot, ${cornerName[k]}`, kind: 'hardware', role: 'dark', step: 2, boxes: [],
         cyls: [{ a: [x, y, 0], b: [x, y, 8], r: 20 }, { a: [x, y, 8], b: [x, y, baseH], r: 4 }], mass: 0.08,
-        spec: `Levelling foot, ${prof.endTap} stud, Ø40 base`, collide: true });
+        spec: `Levelling foot, ${tap} stud, Ø40 base`, collide: true });
     } else {
       const wr = p.casterWheel / 2, plate = 6;
       parts.push({ id: `caster_${k}`, name: `Caster, ${cornerName[k]}`, kind: 'hardware', role: 'dark', step: 2,
-        boxes: [{ c: [x, y, baseH - plate / 2], s: [Math.max(s, 40), Math.max(s, 40), plate] }, { c: [x, y, (wr + baseH - plate) / 2], s: [p.casterWheel * 0.35, 6 + p.casterWheel * 0.32, baseH - plate - wr] }],
+        boxes: [{ c: [x, y, baseH - plate / 2], s: [Math.max(sl, 40), Math.max(sl, 40), plate] }, { c: [x, y, (wr + baseH - plate) / 2], s: [p.casterWheel * 0.35, 6 + p.casterWheel * 0.32, baseH - plate - wr] }],
         cyls: [{ a: [x - p.casterWheel * 0.14, y, wr], b: [x + p.casterWheel * 0.14, y, wr], r: wr }], mass: 0.1 + p.casterWheel * 0.003,
-        spec: `Swivel caster with brake, Ø${p.casterWheel} mm wheel, ${prof.endTap} threaded stem`, collide: true });
+        spec: `Swivel caster with brake, Ø${p.casterWheel} mm wheel, ${tap} threaded stem`, collide: true });
     }
   }
 
-  // ---- an L bracket at each rail end: under the rail where it meets a post, on its side
+  // ---- an L bracket at each rail end: under the rail where it meets a leg, on its side
   // where it meets another rail at the same level (supports, the overhead bar)
-  const bl = s * 0.9, bt = Math.max(2.5, s * 0.12), bw = s * 0.8;
   const sized = (axis: Axis, along: number, across: number, up: number): V3 => axis === 'x' ? [along, across, up] : [across, along, up];
   for (const part of [...parts]) {
-    if (part.kind !== 'member' || part.id.startsWith('post') || part.id.startsWith('rail_top')) continue;
-    const m = part.member!, ax = AX[m.axis], toPost = part.id.startsWith('rail_');
+    if (part.kind !== 'member' || part.member!.axis === 'z' || part.id.startsWith('rail_top')) continue;
+    const m = part.member!, ax = AX[m.axis], toLeg = part.id.startsWith('rail_'), s = PROFILES[m.prof].s;
+    const bl = s * 0.9, bt = Math.max(2.5, s * 0.12), bw = s * 0.8;
     const q: V3 = m.axis === 'x' ? [0, 1, 0] : [1, 0, 0];
     for (const end of [0, 1]) {
-      const pt = add(m.a, mul(ax, end * m.length)), dir = mul(ax, end ? -1 : 1);   // dir points into the rail
+      const pt = add(m.a, mul(ax, end * m.length)), dir = mul(ax, end ? -1 : 1);
       const zBot = m.a[2] - s / 2;
-      const boxes: Box[] = toPost
+      const boxes: Box[] = toLeg
         ? [{ c: add([pt[0], pt[1], zBot - bt / 2], mul(dir, bl / 2)), s: sized(m.axis, bl, bw, bt) },
            { c: add([pt[0], pt[1], zBot - bl / 2], mul(dir, bt / 2)), s: sized(m.axis, bt, bw, bl) }]
         : [{ c: add(add(pt, mul(dir, bl / 2)), mul(q, s / 2 + bt / 2)), s: sized(m.axis, bl, bt, bw) },
            { c: add(add(pt, mul(dir, bt / 2)), mul(q, s / 2 + bl / 2)), s: sized(m.axis, bt, bl, bw) }];
       parts.push({ id: `bracket_${part.id}_${end}`, name: `L bracket, ${part.name.toLowerCase()} ${end ? 'end' : 'start'}`, kind: 'hardware', role: 'hw', step: part.step,
-        boxes, cyls: [], mass: 0.02, spec: `${prof.id} L bracket, 2 hole`, collide: false });
+        boxes, cyls: [], mass: 0.02, spec: `${m.prof} L bracket, 2 hole`, collide: false });
     }
   }
 
   // ---- cameras: resolve each onto its member
   const worktopZ = Ht + wt;
-  const cameras: CameraPose[] = p.cameras.map(c => resolveCamera(c, parts, s, worktopZ));
+  const cameras: CameraPose[] = p.cameras.map(c => resolveCamera(c, parts, worktopZ));
   for (const cam of cameras) {
     const pre = cameraPreset(cam.spec.preset), [bd, bw, bh] = pre.body;
     const back = add(cam.pos, mul(cam.f, -bd / 2 - 6));
@@ -215,7 +222,7 @@ export function buildModel(input: Params): Model {
   const bbox: [V3, V3] = [[-W / 2, -D / 2, 0], [W / 2, D / 2, Htot + (p.panels.roof ? t : 0)]];
   for (const q of all) for (let i = 0; i < 3; i++) { bbox[0][i] = Math.min(bbox[0][i], q[i]); bbox[1][i] = Math.max(bbox[1][i], q[i]); }
   const { mass, com, inertia } = massProps(parts.filter(pt => pt.kind !== 'camera'));
-  const model: Model = { p, prof, s, baseH, topZ: Htot, worktopZ, parts, cameras, steps: [], bbox, mass, com, inertia, supportCount: nSup, sizing };
+  const model: Model = { p, profs, baseH, topZ: Htot, worktopZ, parts, cameras, steps: [], bbox, mass, com, inertia, supportCount: nSup, sizing };
   model.steps = buildSteps(model);
   return model;
 }
@@ -226,12 +233,12 @@ function orientedBox(c: V3, f: V3, l: V3, u: V3, size: V3): Box & { axes?: [V3, 
   return Object.assign({ c, s: size }, { axes: [f, l, u] as [V3, V3, V3] });
 }
 
-export function resolveCamera(c: CameraSpec, parts: Part[], s: number, worktopZ: number): CameraPose {
+export function resolveCamera(c: CameraSpec, parts: Part[], worktopZ: number): CameraPose {
   const part = parts.find(pt => pt.id === c.mount && pt.member);
   let pos: V3, valid = true, note: string | undefined;
   const n = FACE[c.face];
   if (part) {
-    const m = part.member!, ax = AX[m.axis];
+    const m = part.member!, ax = AX[m.axis], s = PROFILES[m.prof].s;
     const along = Math.min(1, Math.max(0, c.along));
     if (Math.abs(dot(ax, n)) > 0.5) {
       // an end face of the member: the camera sits off that end
@@ -319,7 +326,7 @@ function massProps(parts: Part[]) {
 }
 
 function buildSteps(m: Model): Step[] {
-  const p = m.p, prof = m.prof;
+  const p = m.p, prof = m.profs.legs;
   const steps: Step[] = [];
   const push = (n: number, title: string, tasks: string[], check?: string, warn?: string) => {
     if (n === 1 || n === 9 || m.parts.some(pt => pt.step === n)) steps.push({ n, title, tasks, check, warn });
@@ -327,17 +334,16 @@ function buildSteps(m: Model): Step[] {
   push(1, 'Cut and prepare the extrusions', [
     `Cut every piece on the cut list, square to ±0.5 mm. Mark each with its letter.`,
     `Deburr the cut ends so they sit flat against the post faces.`,
-    `Tap the bottom end of each post ${prof.endTap} for the ${p.base === 'feet' ? 'levelling feet' : 'caster stems'}.`,
+    `Tap the bottom end of each leg ${prof.endTap} for the ${p.base === 'feet' ? 'levelling feet' : 'caster stems'}.`,
   ], 'Pieces of the same letter are the same length within 0.5 mm.');
-  push(2, p.base === 'feet' ? 'Fit the feet to the posts' : 'Fit the casters to the posts', [
-    p.base === 'feet' ? `Screw a levelling foot into each post end, wound in to leave about 10 mm of adjustment.` : `Screw a caster into each post end and tighten against the post with its lock nut.`,
-    `Lay the four posts side by side with the feet at one end.`,
+  push(2, p.base === 'feet' ? 'Fit the feet to the legs' : 'Fit the casters to the legs', [
+    p.base === 'feet' ? `Screw a levelling foot into each leg, wound in to leave about 10 mm of adjustment.` : `Screw a caster into each leg and tighten it against the leg with its lock nut.`,
   ]);
   const lower = p.lowerRing !== 'none';
   push(3, 'Build the two end frames', [
-    `Lay two posts on the floor, slots facing each other, ${round(p.depth - 2 * m.s)} mm apart between inside faces.`,
+    `Lay two legs on the floor, slots facing each other, ${round(p.depth - 2 * prof.s)} mm apart between inside faces.`,
     `Fit the worktop side rail with its top flush ${round(p.tableHeight)} mm from the floor${lower ? `, and the ${p.shelf ? 'shelf' : 'lower'} side rail with its top ${round(p.lowerHeight)} mm from the floor` : ''}.`,
-    `Put an L bracket under each rail end: one screw into the rail, one into the post, both into drop-in T-nuts.`,
+    `Put an L bracket under each rail end: one screw into the rail, one into the leg, both into drop-in T-nuts.`,
     `Do the same for the other end frame.`,
   ], 'Each end frame is square: its diagonals match within 2 mm.', 'Leave the top rails off for now: the box walls drop in from above.');
   push(4, 'Join the end frames', [
@@ -349,16 +355,17 @@ function buildSteps(m: Model): Step[] {
   push(5, p.worktop ? 'Lay the worktop' + (p.shelf ? ' and the shelf' : '') : 'Lay the shelf', [
     p.shelf ? `Slide the shelf board in diagonally and drop it onto the ${p.shelf ? 'shelf' : 'lower'} rails, notches round the posts.` : '',
     p.worktop ? `Drop the worktop onto the worktop rails, notches round the posts.` : '',
-    `Fix each board down with countersunk ${prof.screw} screws into T-nuts in the rails' top slots, about every 300 mm.`,
+    `Fix each board down with countersunk ${m.profs.rails.screw} screws into T-nuts in the rails' top slots, about every 300 mm.`,
   ].filter(Boolean), 'Boards sit flat, no rocking, no screw heads proud of the surface.');
-  push(6, 'Drop in the box walls', [
-    `Slide each wall down into the post slots from above until it rests on ${p.worktop ? 'the worktop' : 'the worktop rail slot'}.`,
+  push(6, 'Stand up the box', [
+    `Stand a box post on each corner of the worktop rails, outer faces flush, and fix each with two L brackets into the rails' top slots.`,
+    `Slide each wall down into the box posts' slots from above until it rests on ${p.worktop ? 'the worktop' : 'the worktop rail slot'}.`,
     `Peel any protective film from the inside face now; it is hard to reach later.`,
   ], undefined, 'The top rails hold the walls in. Fit the walls before the top rails.');
   push(7, 'Close the top of the box', [
-    `Fit the four top rails between the posts, pressing each down over the wall edges, with a 3-way corner bracket at each corner.`,
+    `Fit the four top rails between the box posts, pressing each down over the wall edges, with a 3-way corner bracket at each corner.`,
     p.overheadBar ? `Fit the overhead camera bar ${p.overheadBarY === 0 ? 'across the middle' : `${round(Math.abs(p.overheadBarY))} mm ${p.overheadBarY > 0 ? 'behind' : 'in front of'} the centre`}, flush with the top rails, with an L bracket at each end.` : '',
-    p.panels.roof ? `Lay the roof on top and fix it at the corners with ${prof.screw} screws into T-nuts.` : '',
+    p.panels.roof ? `Lay the roof on top and fix it at the corners with ${m.profs.box.screw} screws into T-nuts.` : '',
   ].filter(Boolean), 'Top diagonals match within 2 mm. The walls do not rattle.');
   push(8, 'Mount the cameras', m.cameras.map(c => {
     const pt = m.parts.find(q => q.id === c.spec.mount);

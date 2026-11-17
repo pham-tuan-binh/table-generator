@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import { Params, DEFAULTS, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, PanelFace, Face } from './params.ts';
 import { buildModel, Model, Part, round } from './model.ts';
 import { createWorld, Hit, PlaceHit } from './world.ts';
-import { bom, cutList, nest, checks, bomCsv } from './bom.ts';
+import { bom, cutList, nest, checks, bomCsv, cost } from './bom.ts';
 import { bundle, cameraJson, Files } from './export/bundle.ts';
 import { glb } from './export/glb.ts';
 
@@ -111,13 +111,14 @@ function renderDynamic() {
   $('#cam-list').innerHTML = M.cameras.map(c => `<button type="button" class="cam-item" data-pick="cam_${c.spec.id}"><b>${esc(c.spec.name)}</b><small>${c.spec.width}×${c.spec.height} · ${c.hfov.toFixed(0)}°</small></button>`).join('');
   renderTimeline();
   const cuts = cutList(M), metres = cuts.reduce((a, c) => a + c.length * c.qty, 0) / 1000, lines = bom(M);
-  const stock = P.stockLength ? nest(M) : null, pieces = cuts.reduce((a, c) => a + c.qty, 0);
-  $('#parts').innerHTML = `<div class="stats"><div class="stat"><b>${round(metres)} m</b><span>${M.prof.id}</span></div><div class="stat"><b>${pieces}</b><span>pieces</span></div><div class="stat"><b>${round(M.mass)} kg</b><span>mass</span></div></div>
+  const stock = P.stockLength ? nest(M) : null;
+  $('#parts').innerHTML = `<div class="stats"><div class="stat"><b>${round(metres)} m</b><span>extrusion</span></div><div class="stat"><b>${round(M.mass)} kg</b><span>total</span></div><div class="stat"><b>${'$' + Math.round(cost(M))}</b><span>frame, rough</span></div></div>
     <p class="sub">Cut list</p><div class="list">${cuts.map(c => `<div class="li"><span class="mark">${c.mark}</span><span class="t">${c.length} mm<small>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}${c.taps ? ` · ${esc(c.taps)}` : ''}</small></span><span class="q">×${c.qty}</span></div>`).join('')}</div>
     ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
     <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
-  const z = M.sizing, why = { sway: 'it would sway', sag: 'its rails would sag', buckling: 'its posts would be too slender' } as Record<string, string>;
-  $('#sizing').textContent = `Built from ${M.prof.id} extrusion.` + (z.governs ? ` A smaller size would not do: ${why[z.governs]}.` : '') + ` Rails sag ${z.sag.toFixed(1)} mm under load, the top moves ${z.sway.toFixed(1)} mm when the arm pushes.`;
+  const z = M.sizing;
+  $('#sizing').textContent = `Legs ${z.legs}, worktop rails ${z.rails}${z.supports ? ` with ${z.supports} support${z.supports > 1 ? 's' : ''}` : ''}${P.lowerRing !== 'none' ? `, ${P.shelf ? 'shelf' : 'lower'} rails ${z.lower}` : ''}, box ${z.box}. `
+    + `Under ${P.load} kg the rails sag ${z.sag.toFixed(1)} mm and the worktop moves ${z.sway.toFixed(1)} mm when an arm pushes.`;
   // checks only show up when something needs attention
   const bad = checks(M).filter(c => !c.ok && c.level !== 'info');
   $('#checks').innerHTML = bad.map(c => `<div class="ck ${c.level}">${esc(c.text)}</div>`).join('');
@@ -146,7 +147,7 @@ function setParam(k: keyof Params, raw: unknown) {
   if (typeof v === 'number' && !Number.isFinite(v)) return;
   (P as any)[k] = v;
   // a new material brings its usual thickness and colour
-  if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, M.prof.slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
+  if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, M.profs.box.slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
   if (k === 'worktopMaterial') { const m = material(String(v)); P.worktopThk = m.thk; P.worktopColor = m.color; }
   if (k === 'shelfMaterial') { const m = material(String(v)); P.shelfThk = m.thk; P.shelfColor = m.color; }
   update();

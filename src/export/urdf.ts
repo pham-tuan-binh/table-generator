@@ -16,7 +16,7 @@ export function urdf(m: Model, name = 'table_generator'): string {
     const mat = L[pt.role].name;
     if (pt.member) {
       const r = MEMBER_ROT[pt.member.axis];
-      out.push(`    <visual name="${pt.id}"><origin xyz="${m3(memberMid(pt))}" rpy="${fl(r.rpy)}"/><geometry><mesh filename="meshes/profile_${m.prof.id}.stl" scale="1 1 ${f(pt.member.length / 1000)}"/></geometry><material name="${mat}"/></visual>`);
+      out.push(`    <visual name="${pt.id}"><origin xyz="${m3(memberMid(pt))}" rpy="${fl(r.rpy)}"/><geometry><mesh filename="meshes/profile_${pt.member.prof}.stl" scale="1 1 ${f(pt.member.length / 1000)}"/></geometry><material name="${mat}"/></visual>`);
     } else {
       pt.boxes.forEach((b, i) => out.push(`    <visual name="${pt.id}_${i}"><origin xyz="${m3(b.c)}" rpy="0 0 0"/><geometry><box size="${m3(b.s)}"/></geometry><material name="${mat}"/></visual>`));
       pt.cyls.forEach((c, i) => {
