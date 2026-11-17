@@ -33,6 +33,7 @@ details.sec>summary:hover{color:#fff}details.sec>summary::-webkit-details-marker
 details.sec>summary::after{content:"";width:6px;height:6px;border-right:1.5px solid var(--fg2);border-bottom:1.5px solid var(--fg2);transform:rotate(-45deg);transition:transform .2s;margin-left:auto}
 details.sec[open]>summary::after{transform:rotate(45deg)}
 details.sec>div{padding:0 0 14px;display:grid;gap:12px}
+.lead{display:grid;gap:12px;padding:16px 0 16px;border-bottom:1px solid var(--w10)}
 
 /* controls */
 .row{display:grid;gap:5px}
@@ -146,9 +147,48 @@ details.more>summary{width:36px;padding:0}
 .placing{position:fixed;z-index:13;top:14px;left:50%;transform:translateX(-50%);background:#fff;color:var(--ink);border-radius:999px;padding:5px 5px 5px 14px;display:flex;align-items:center;gap:12px;font-weight:600;font-size:12.5px}
 .toast{position:fixed;z-index:30;left:50%;top:14px;transform:translateX(-50%);padding:7px 14px;border-radius:999px;font-weight:600;font-size:12.5px;color:var(--fg0)}
 
+/* folded detail inside a card */
+details.fold{border-top:1px solid var(--w10);margin-top:2px}
+details.fold>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;padding:10px 0 4px;cursor:pointer;font-weight:500;color:var(--fg1)}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::after{content:"";width:5px;height:5px;border-right:1.5px solid var(--fg2);border-bottom:1.5px solid var(--fg2);transform:rotate(-45deg);transition:transform .2s}
+details.fold[open]>summary::after{transform:rotate(45deg)}
+details.fold>.row{padding:6px 0 4px}
+.btn:disabled{opacity:.35;cursor:default;background:var(--w10)}
+.toast{display:flex;align-items:center;gap:12px}
+.toast-act{border:0;background:#fff;color:var(--ink);border-radius:999px;padding:4px 12px;font-weight:600;font-size:12.5px;cursor:pointer}
+.grip{display:none}
+.selcard{position:sticky;top:0;z-index:2;background:rgba(36,86,228,.94)}
+
+/* phones: the sidebar is a bottom sheet with a grip; the camera preview sits top right */
 @media (max-width:700px){
-  .side{top:auto;left:8px;right:8px;bottom:8px;width:auto;height:55vh}
-  .pip{width:min(200px,46vw);right:8px;top:8px;bottom:auto}
+  .side{top:auto;left:0;right:0;bottom:0;width:auto;height:50vh;border-radius:20px 20px 0 0;border-bottom:0;transition:height .28s cubic-bezier(.2,.8,.2,1);animation:none;padding-bottom:env(safe-area-inset-bottom)}
+  .grip{display:grid;place-items:center;height:22px;touch-action:none;cursor:grab;flex:none}
+  .grip span{width:40px;height:5px;border-radius:5px;background:var(--w30)}
+  .side[data-sheet="peek"] .side-b{overflow:hidden}
+  .side-f{padding:8px 12px 10px}
+  .pip{width:min(220px,52vw);right:10px;top:max(10px,env(safe-area-inset-top));bottom:auto}
+  .placing{top:max(10px,env(safe-area-inset-top));left:12px;right:12px;transform:none;justify-content:space-between}
+  .toast{top:auto;bottom:calc(122px + env(safe-area-inset-bottom))}
+  .open-side{top:auto;bottom:16px;left:50%;transform:translateX(-50%);width:auto;padding:0 18px;border-radius:999px}
+  .menu{right:0;bottom:calc(100% + 8px)}
+}
+/* fingers: bigger targets, and 16 px inputs so phones don't zoom on focus */
+@media (pointer:coarse){
+  .seg button{padding:11px 6px;font-size:14px;min-height:40px}
+  .pills span{padding:8px 13px;font-size:14px}
+  .side-f .btn{height:44px}.btn.icon{width:44px}details.more>summary{width:44px}
+  .icon-btn{width:40px;height:40px}
+  input[type=range]{height:30px}
+  input[type=range]::-webkit-slider-thumb{width:22px;height:22px;margin-top:-9.5px}
+  input[type=range]::-moz-range-thumb{width:22px;height:22px}
+  .num input,select.sel,input.txt{font-size:16px}
+  .switch input{width:44px;height:26px}.switch input::after{width:22px;height:22px}.switch input:checked::after{transform:translateX(18px)}
+  details.sec>summary{padding:16px 0 14px}
+  .cam-item,.add{padding:12px}
+  .pip.show .pip-btn,.pip.show .pip-name{opacity:1}
+  .swatches{gap:10px}.sw{width:40px;height:40px}.sw.custom::before{font-size:18px}
+  .menu button{min-height:44px}
 }
 .num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.num input{-moz-appearance:textfield;appearance:textfield}
 .steps-txt p{margin:0 0 8px;color:var(--fg1);font-size:13.5px;line-height:1.5}

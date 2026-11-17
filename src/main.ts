@@ -83,8 +83,9 @@ function renderSide() {
   const sec = (id: string, name: string, body: string) => `<details class="sec" data-sec="${id}" ${open[id] ? 'open' : ''}><summary>${name}</summary><div>${body}</div></details>`;
   const k = (...keys: (keyof Params)[]) => keys.map(x => field(x)).join('');
   $('#form').innerHTML = [
+    // the dimensions are what everyone touches first: always open, no heading to read past
+    `<div class="lead">${k('width', 'depth', 'tableHeight', 'boxHeight', 'load')}</div>`,
     sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
-    sec('size', 'Size and load', k('width', 'depth', 'tableHeight', 'boxHeight', 'load')),
     sec('structure', 'Structure', k('shelf', 'shelfLoad', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
     sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfLikeWorktop', 'shelfMaterial', 'shelfThk')),
     sec('colours', 'Colours', k('frameColor', 'panelColor', 'worktopColor', 'shelfColor', 'panelOpacity')),
@@ -183,9 +184,11 @@ document.addEventListener('click', e => {
 
 // ------------------------------------------------------------------ world
 const tip = $('#tip');
+const touch = window.matchMedia('(hover: none)').matches;
 const world = createWorld($('#world'), {
   onHover(h: Hit | null) {
-    if (!h) { tip.hidden = true; return; }
+    if (placing && h?.place) livePlace(h.place);
+    if (!h || touch) { tip.hidden = true; return; }
     tip.hidden = false;
     tip.style.left = `${h.screen[0]}px`; tip.style.top = `${h.screen[1]}px`;
     tip.innerHTML = placing && h.place ? `Mount here<span>${esc(h.part.name)} · ${Math.round(h.place.along * 100)}%</span>` : `${esc(h.part.name)}<span>${esc(h.part.spec)}</span>`;
@@ -202,7 +205,7 @@ function selectPart(id: string | null, place: PlaceHit | null = null, focus = fa
   world.select(id);
   if (id && focus) world.focus(id);
   if (id?.startsWith('cam_')) { pipCam = id.slice(4); syncPip(); }
-  if (id) showSide(true);
+  if (id) { showSide(true); if (sheetState === 'peek') sheet('half'); }
   renderSelected();
   if (id) $('#side-b').scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -231,14 +234,16 @@ const FACE_NAME: Record<Face, string> = { '-z': 'Under', '+z': 'Top', '-y': 'Fro
 function cameraEditor(id: string): string {
   const c = P.cameras.find(x => x.id === id);
   if (!c) return '';
-  const num = (k: string, label: string, unit: string, v: number, step = 1) => `<div class="row-h"><label class="l">${label}</label><span class="num"><input type="number" data-cam="${id}" data-ck="${k}" value="${v}" step="${step}"><i>${unit}</i></span></div>`;
-  return `<div class="row"><input class="txt" type="text" data-cam="${id}" data-ck="name" value="${esc(c.name)}" aria-label="Name" spellcheck="false"></div>
+  const num = (k: string, label: string, unit: string, v: number, step = 1) => `<div class="row-h"><label class="l">${label}</label><span class="num"><input type="number" inputmode="decimal" data-cam="${id}" data-ck="${k}" value="${v}" step="${step}"><i>${unit}</i></span></div>`;
+  const on = (M.parts.find(p => p.id === c.mount)?.name || c.mount).split(',')[0].toLowerCase();
+  return `<div class="row"><input class="txt" type="text" data-cam="${id}" data-ck="name" value="${esc(c.name)}" aria-label="Camera name" spellcheck="false"></div>
     <div class="row"><select class="sel" data-cam="${id}" data-ck="preset" aria-label="Camera model">${CAMERA_PRESETS.map(p => `<option value="${p.id}" ${p.id === c.preset ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-    <div class="row">${num('width', 'Width', 'px', c.width)}${num('height', 'Height', 'px', c.height)}${num('hfov', 'Horizontal FOV', '°', c.hfov, 0.1)}</div>
-    <div class="row"><div class="row-h"><span class="l">Along the ${esc((M.parts.find(p => p.id === c.mount)?.name || c.mount).split(',')[0].toLowerCase())}</span><span class="num"><i>${Math.round(c.along * 100)}%</i></span></div><input type="range" data-cam="${id}" data-ck="along" min="0" max="1" step="0.005" value="${c.along}" style="--p:${c.along * 100}%"></div>
-    <div class="row"><div class="row-h"><span class="l">On its face</span></div><div class="seg">${(['-z', '+z', '-y', '+y', '-x', '+x'] as Face[]).map(f => `<button type="button" data-cam-face="${f}" aria-pressed="${f === c.face}">${FACE_NAME[f]}</button>`).join('')}</div></div>
-    <div class="row"><div class="row-h"><span class="l">Looks at</span><span class="num" style="gap:4px">${[0, 1, 2].map(i => `<input type="number" data-cam="${id}" data-ck="target.${i}" value="${c.target[i]}" step="10" aria-label="${'xyz'[i]}" style="width:46px">`).join('')}<i>mm</i></span></div><small style="color:var(--fg3);font-size:11px">x, y, z from the centre of the worktop</small></div>
-    <div class="actions"><button type="button" class="btn solid" data-act="move-cam">Move it</button><button type="button" class="btn" data-act="view-cam">Preview</button><button type="button" class="btn quiet" data-act="remove-cam">Remove</button></div>`;
+    <div class="row"><div class="row-h"><span class="l">On the ${esc(on)}</span><span class="num"><i>${Math.round(c.along * 100)}%</i></span></div><input type="range" data-cam="${id}" data-ck="along" min="0" max="1" step="0.005" value="${c.along}" style="--p:${c.along * 100}%" aria-label="Position along the ${esc(on)}"></div>
+    <div class="row"><div class="row-h"><span class="l">Side</span></div><select class="sel" data-cam="${id}" data-ck="face" aria-label="Which side of the ${esc(on)}">${(['-z', '+z', '-y', '+y', '-x', '+x'] as Face[]).map(f => `<option value="${f}" ${f === c.face ? 'selected' : ''}>${FACE_NAME[f]}</option>`).join('')}</select></div>
+    <div class="actions"><button type="button" class="btn solid" data-act="move-cam">Move</button><button type="button" class="btn solid" data-act="aim-cam">Point at…</button></div>
+    <details class="fold"><summary>Lens</summary><div class="row">${num('width', 'Width', 'px', c.width)}${num('height', 'Height', 'px', c.height)}${num('hfov', 'Horizontal field of view', '°', c.hfov, 0.1)}${num('rate', 'Frame rate', 'Hz', c.rate)}</div></details>
+    <details class="fold"><summary>Exact aim</summary><div class="row">${num('target.0', 'Across', 'mm', Math.round(c.target[0]), 10)}${num('target.1', 'Front to back', 'mm', Math.round(c.target[1]), 10)}${num('target.2', 'Above the worktop', 'mm', Math.round(c.target[2]), 10)}</div></details>
+    <div class="actions"><button type="button" class="btn quiet" data-act="remove-cam">Remove camera</button></div>`;
 }
 function camSet(fn: (c: Params['cameras'][number]) => void) {
   const c = sel && P.cameras.find(x => `cam_${x.id}` === sel!.id);
@@ -252,27 +257,73 @@ function camInput(el: HTMLInputElement) {
   const k = el.dataset.ck!;
   if (k.startsWith('target.')) { c.target[Number(k.split('.')[1])] = parseFloat(el.value) || 0; c.aim = 'target'; }
   else if (k === 'name') c.name = el.value.trim() || c.id;
+  else if (k === 'face') c.face = el.value as Face;
   else if (k === 'preset') { c.preset = el.value; if (el.value !== 'custom') { const p = cameraPreset(el.value); c.width = p.width; c.height = p.height; c.hfov = p.hfov; } }
   else { const v = parseFloat(el.value); if (!Number.isFinite(v)) return; (c as any)[k] = v; }
   if (k === 'along') { el.style.setProperty('--p', `${c.along * 100}%`); const i = el.parentElement!.querySelector('.num i'); if (i) i.textContent = `${Math.round(c.along * 100)}%`; }
   update();
   if (k === 'preset') renderSelected();
 }
-function startPlacing(id: string) {
+// placing: the camera follows the pointer along the rails; a click or tap drops it, Cancel puts it back
+let placingCam: { id: string; isNew: boolean; before: Params['cameras'][number] } | null = null;
+let aimingCam: { id: string; before: Params['cameras'][number] } | null = null;
+let liveFrame = 0;
+const liveUpdate = () => { if (!liveFrame) liveFrame = requestAnimationFrame(() => { liveFrame = 0; update(); }); };
+function livePlace(h: PlaceHit) {
+  const c = placingCam && P.cameras.find(x => x.id === placingCam!.id);
+  if (!c || (c.mount === h.member && Math.abs(c.along - h.along) < 0.004 && c.face === h.face)) return;
+  Object.assign(c, { mount: h.member, along: h.along, face: h.face });
+  liveUpdate();
+}
+function banner(text: string) { $('#placing-text').textContent = text; $('#placing').hidden = !text; }
+function startPlacing(id: string, isNew = false) {
   const c = P.cameras.find(x => x.id === id);
-  $('#placing-name').textContent = c ? `“${c.name}”` : '';
-  $('#placing').hidden = false;
+  if (!c) return;
+  stopAiming(false);
+  placingCam = { id, isNew, before: clone(c) };
+  banner(touch ? 'Tap a rail or post to mount the camera' : 'Click a rail or post to mount the camera');
+  pipCam = id; pipOn = true; syncPip();
+  sheet('peek');
+  // update() rebuilds the camera objects, so look the camera up each time
+  const cam = () => P.cameras.find(x => x.id === id);
   placing = h => {
-    const cam = P.cameras.find(x => x.id === id);
-    if (cam) Object.assign(cam, { mount: h.member, along: h.along, face: h.face });
-    stopPlacing();
-    update();
+    const c = cam();
+    if (c) Object.assign(c, { mount: h.member, along: h.along, face: h.face });
+    placingCam = null; stopPlacing(true);
+    update(); record();
     selectPart(`cam_${id}`);
   };
   world.placeMode(placing);
 }
-function stopPlacing() { placing = null; world.placeMode(null); $('#placing').hidden = true; }
-$('#placing-cancel').addEventListener('click', stopPlacing);
+function stopPlacing(kept = false) {
+  if (!kept && placingCam) {
+    const { id, isNew, before } = placingCam;
+    if (isNew) P.cameras = P.cameras.filter(x => x.id !== id); else Object.assign(P.cameras.find(x => x.id === id)!, before);
+    update();
+  }
+  placingCam = null; placing = null; world.placeMode(null); banner('');
+}
+// aiming: the camera turns to follow the pointer over any surface; a click or tap sets it
+function startAiming(id: string) {
+  const c = P.cameras.find(x => x.id === id);
+  if (!c) return;
+  stopPlacing(false);
+  aimingCam = { id, before: clone(c) };
+  banner(touch ? 'Tap where the camera should look' : 'Click where the camera should look');
+  pipCam = id; pipOn = true; syncPip();
+  sheet('peek');
+  const to = (pt: [number, number, number]) => { const c = P.cameras.find(x => x.id === id); if (!c) return; c.aim = 'target'; c.target = [Math.round(pt[0]), Math.round(pt[1]), Math.round(pt[2] - M.worktopZ)]; };
+  world.aimMode({
+    move: pt => { to(pt); liveUpdate(); },
+    pick: pt => { to(pt); aimingCam = null; stopAiming(true); update(); record(); selectPart(`cam_${id}`); },
+  });
+}
+function stopAiming(kept = false) {
+  if (!kept && aimingCam) { Object.assign(P.cameras.find(x => x.id === aimingCam!.id)!, aimingCam.before); update(); }
+  if (aimingCam || kept) banner('');
+  aimingCam = null; world.aimMode(null);
+}
+$('#placing-cancel').addEventListener('click', () => { stopPlacing(false); stopAiming(false); });
 function newCamera(place: PlaceHit | null): string {
   let n = P.cameras.length + 1;
   while (P.cameras.some(c => c.id === `cam${n}`)) n++;
@@ -283,19 +334,66 @@ function newCamera(place: PlaceHit | null): string {
   update();
   return id;
 }
-function addCamera() { startPlacing(newCamera(null)); }
+function addCamera() { startPlacing(newCamera(null), true); }
 
 function action(a: string, arg?: string) {
   const c = sel && P.cameras.find(x => `cam_${x.id}` === sel!.id);
   if (a === 'deselect') selectPart(null);
   if (a === 'focus' && sel) world.focus(sel.id);
-  if (a === 'mount-here' && sel?.place) selectPart(`cam_${newCamera(sel.place)}`);
-  if (a === 'remove-wall') { P.panels[arg as PanelFace] = false; selectPart(null); update(); }
-  if (a === 'remove-board') { if (arg === 'worktop') P.worktop = false; else P.shelf = false; selectPart(null); update(); }
+  if (a === 'mount-here' && sel?.place) { const id = newCamera(sel.place); record(); selectPart(`cam_${id}`); }
+  if (a === 'remove-wall') removed(() => { P.panels[arg as PanelFace] = false; }, `Removed the ${arg === 'roof' ? 'roof' : `${arg} wall`}`);
+  if (a === 'remove-board') removed(() => { if (arg === 'worktop') P.worktop = false; else P.shelf = false; }, `Removed the ${arg}`);
   if (a === 'move-cam' && c) startPlacing(c.id);
+  if (a === 'aim-cam' && c) startAiming(c.id);
   if (a === 'view-cam' && c) { pipCam = c.id; pipOn = true; syncPip(); }
-  if (a === 'remove-cam' && c) { P.cameras = P.cameras.filter(x => x !== c); selectPart(null); update(); }
+  if (a === 'remove-cam' && c) removed(() => { P.cameras = P.cameras.filter(x => x !== c); }, `Removed camera ${c.name}`);
 }
+function removed(fn: () => void, what: string) {
+  fn(); selectPart(null); update(); record(true);
+  toast(what, { label: 'Undo', run: undo });
+}
+// Delete or Backspace removes what is selected
+document.addEventListener('keydown', e => {
+  if ((e.key !== 'Delete' && e.key !== 'Backspace') || !sel || (e.target as HTMLElement).closest('input,select,textarea')) return;
+  const part = M.parts.find(p => p.id === sel!.id);
+  if (!part) return;
+  if (part.kind === 'camera') action('remove-cam');
+  else if (part.role === 'panel') action('remove-wall', part.id.replace('panel_', ''));
+  else if (part.role === 'worktop' || part.role === 'shelf') action('remove-board', part.role);
+  else return;
+  e.preventDefault();
+});
+
+// ------------------------------------------------------------------ undo / redo
+// one step per settled edit: a slider drag is one step, not a hundred
+const undoStack: string[] = [], redoStack: string[] = [];
+let committed = '', commitT = 0;
+function record(now = false) {
+  clearTimeout(commitT);
+  const go = () => {
+    const cur = JSON.stringify(P);
+    if (cur === committed || placingCam || aimingCam) return;
+    if (committed) { undoStack.push(committed); if (undoStack.length > 200) undoStack.shift(); }
+    committed = cur; redoStack.length = 0; syncHistory();
+  };
+  if (now) go(); else commitT = window.setTimeout(go, 400);
+}
+function restore(json: string) {
+  P = normalize(JSON.parse(json)); committed = json;
+  stopPlacing(false); stopAiming(false);
+  renderSide(); update(); renderSelected(); syncHistory();
+}
+function undo() { record(true); const prev = undoStack.pop(); if (!prev) return; redoStack.push(committed); restore(prev); }
+function redo() { const next = redoStack.pop(); if (!next) return; undoStack.push(committed); restore(next); }
+function syncHistory() { ($('#undo') as HTMLButtonElement).disabled = !undoStack.length; ($('#redo') as HTMLButtonElement).disabled = !redoStack.length; }
+$('#undo').addEventListener('click', undo);
+$('#redo').addEventListener('click', redo);
+document.addEventListener('keydown', e => {
+  if (!(e.metaKey || e.ctrlKey) || (e.target as HTMLElement).closest('input[type=text],textarea')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); }
+});
 
 // ------------------------------------------------------------------ assembly timeline
 let playT = 0;
@@ -349,18 +447,57 @@ $('#pip').addEventListener('pointerenter', () => (overPip = true));
 $('#pip').addEventListener('pointerleave', () => (overPip = false));
 document.addEventListener('keydown', e => { if (!overPip || (e.target as HTMLElement).closest('input,select')) return; if (e.key === 'ArrowLeft') stepCam(-1); if (e.key === 'ArrowRight') stepCam(1); });
 $('#pip-close').addEventListener('click', () => { pipOn = false; syncPip(); });
+// on a phone the sidebar is a bottom sheet: peek (just the footer), half, or full; drag
+// the grip or tap it. The 3D view keeps the table framed above whatever the sheet covers.
+const phone = () => window.innerWidth <= 700;
+let sheetState: 'peek' | 'half' | 'full' = 'half';
+const sheetPx = (st: typeof sheetState) => (st === 'peek' ? 112 : st === 'half' ? Math.round(window.innerHeight * 0.5) : Math.round(window.innerHeight * 0.86));
+function sheet(st: typeof sheetState) {
+  if (!phone()) return;
+  sheetState = st;
+  const side = $('#side');
+  side.style.height = `${sheetPx(st)}px`;
+  side.dataset.sheet = st;
+  world.setInsets(0, 0, 0, sheetPx(st));
+}
 function showSide(on: boolean) {
   const was = !$('#side').hidden;
   $('#side').hidden = !on;
   $('#open-side').hidden = on;
-  if (was !== on || !inited) world.setInsets(on && window.innerWidth > 700 ? 344 : 0, 0, 0, on && window.innerWidth <= 700 ? window.innerHeight * 0.56 : 0);
+  if (phone()) { if (on) sheet(sheetState); else world.setInsets(0, 0, 0, 0); return; }
+  if (was !== on || !inited) world.setInsets(on ? 344 : 0, 0, 0, 0);
 }
+{
+  const grip = $('#grip'), side = $('#side');
+  let start: { y: number; h: number } | null = null;
+  const dragged = (y: number) => Math.max(90, Math.min(window.innerHeight * 0.92, start!.h + start!.y - y));
+  grip.addEventListener('pointerdown', e => {
+    start = { y: e.clientY, h: sheetPx(sheetState) };
+    side.style.transition = 'none';
+    try { grip.setPointerCapture(e.pointerId); } catch { /* capture is a nicety */ }
+  });
+  grip.addEventListener('pointermove', e => { if (start) side.style.height = `${dragged(e.clientY)}px`; });
+  grip.addEventListener('pointercancel', () => { if (start) { start = null; side.style.transition = ''; sheet(sheetState); } });
+  grip.addEventListener('pointerup', e => {
+    if (!start) return;
+    side.style.transition = '';
+    // a tap steps up a size; a drag snaps to the nearest size, judged by where the finger let go
+    const dy = start.y - e.clientY, h = dragged(e.clientY), tap = Math.abs(dy) < 8;
+    start = null;
+    if (tap) return sheet(sheetState === 'peek' ? 'half' : sheetState === 'half' ? 'full' : 'peek');
+    const states: (typeof sheetState)[] = ['peek', 'half', 'full'];
+    sheet(states.reduce((a, b) => (Math.abs(sheetPx(b) - h) < Math.abs(sheetPx(a) - h) ? b : a)));
+  });
+  window.addEventListener('resize', () => { if (phone()) sheet(sheetState); else { $('#side').style.height = ''; showSide(!$('#side').hidden); } });
+}
+// on touch screens the preview's controls show for a while after a tap
+$('#pip').addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { const el = $('#pip'); el.classList.add('show'); clearTimeout((el as any)._t); (el as any)._t = setTimeout(() => el.classList.remove('show'), 3500); } });
 let inited = false;
 $('#collapse').addEventListener('click', () => showSide(false));
 $('#open-side').addEventListener('click', () => showSide(true));
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (placing) stopPlacing(); else if (sel) selectPart(null);
+  if (placingCam || placing) stopPlacing(false); else if (aimingCam) stopAiming(false); else if (sel) selectPart(null);
 });
 
 // ------------------------------------------------------------------ update
@@ -377,6 +514,7 @@ function update() {
   syncAll();
   renderDynamic();
   syncPip();
+  record();
   if (sel && !M.parts.some(p => p.id === sel!.id)) selectPart(null);
   else if (sel) { const pt = M.parts.find(p => p.id === sel!.id)!; const sp = $('#selected .spec'); if (sp) sp.textContent = pt.spec; const ch = $<HTMLElement>('#selected .chip'); if (ch) ch.style.background = colorOf(pt); }
 }
@@ -422,7 +560,17 @@ $<HTMLInputElement>('#load').addEventListener('change', async e => {
   try { P = normalize(JSON.parse(await file.text())); selectPart(null); renderSide(); update(); toast(`Loaded ${file.name}`); } catch { toast('That file is not a params.json'); }
 });
 let toastT = 0;
-function toast(t: string) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = window.setTimeout(() => (el.hidden = true), 2200); }
+function toast(t: string, act?: { label: string; run: () => void }) {
+  const el = $('#toast'), btn = $<HTMLButtonElement>('#toast-act');
+  $('#toast-text').textContent = t;
+  btn.hidden = !act;
+  if (act) { btn.textContent = act.label; btn.onclick = () => { act.run(); el.hidden = true; }; }
+  const ms = act ? 6000 : 2200, hide = () => { toastT = window.setTimeout(() => (el.hidden = true), ms); };
+  el.hidden = false; clearTimeout(toastT); hide();
+  // stays while the pointer rests on it, so there is time to reach Undo
+  el.onpointerenter = () => clearTimeout(toastT);
+  el.onpointerleave = () => { clearTimeout(toastT); hide(); };
+}
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h !== toHash(P)) { P = fromHash(h); renderSide(); update(); } });
 
 // ------------------------------------------------------------------ go
@@ -431,6 +579,8 @@ renderSide();
 world.setRealistic(store.get('tg:real', true));
 world.setArms(store.get('tg:arms', true));
 update();
-showSide(window.innerWidth > 700);
+showSide(true);
+if (phone()) sheet('peek');
 inited = true;
+committed = JSON.stringify(P); syncHistory();
 world.view('iso');
