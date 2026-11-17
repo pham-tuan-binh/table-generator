@@ -6,6 +6,8 @@ Table Generator designs aluminium-extrusion eval tables for robot arms: a table 
 
 **Open it:** https://pham-tuan-binh.github.io/table-generator/
 
+**Watch it:** [the 48-second launch video](https://github.com/pham-tuan-binh/table-generator/releases/download/launch-video/table-generator.mp4)
+
 ## How it works
 
 You never choose the extrusion. Each part of the frame is sized for what it carries, and the cheapest option that does the job wins:
