@@ -112,12 +112,14 @@ const SURFACES: Record<string, Surface> = {
 };
 
 function physical(s: Surface, color: string, extra: THREE.MeshPhysicalMaterialParameters = {}, tintFrom?: string): THREE.MeshPhysicalMaterial {
-  const m = s.maps(), rep = (t?: THREE.Texture) => { if (!t) return undefined; const c = t.clone(); c.repeat.set(1 / s.tile, 1 / s.tile); c.needsUpdate = true; return c; };
+  // clones share the image; only mark them for upload once it has arrived (the loader does it after)
+  const m = s.maps(), rep = (t?: THREE.Texture) => { if (!t) return undefined; if (s.tile === 1) return t; const c = t.clone(); c.repeat.set(1 / s.tile, 1 / s.tile); if (c.image) c.needsUpdate = true; return c; };
   // a photographed surface keeps its own colour; the user's colour tints it relative to the default
   let col = new THREE.Color(color);
   if (s.photo && tintFrom) { const a = new THREE.Color(color), b = new THREE.Color(tintFrom); col = new THREE.Color(Math.min(2, a.r / Math.max(b.r, 0.05)), Math.min(2, a.g / Math.max(b.g, 0.05)), Math.min(2, a.b / Math.max(b.b, 0.05))); }
+  const maps = Object.fromEntries(Object.entries({ map: rep(m.map), roughnessMap: rep(m.rough), normalMap: rep(m.normal) }).filter(([, v]) => v));
   return new THREE.MeshPhysicalMaterial({
-    color: col, map: rep(m.map), roughnessMap: rep(m.rough), normalMap: rep(m.normal), normalScale: new THREE.Vector2(s.normalScale, s.normalScale),
+    color: col, ...maps, normalScale: new THREE.Vector2(s.normalScale, s.normalScale),
     roughness: s.roughness, metalness: s.metalness, clearcoat: s.clearcoat ?? 0, clearcoatRoughness: 0.35,
     anisotropy: s.anisotropy ?? 0, sheen: s.sheen ?? 0, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff), ...extra,
   });

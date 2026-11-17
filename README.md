@@ -4,7 +4,7 @@
 
 Enter a few sizes and get a robot test table made of aluminium extrusion: a table with a box frame on top for the arm and cameras, a shelf and bracing below, and feet or casters underneath. The same parameters produce the sim assets for the virtual table and the build plan for the real one.
 
-The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examples/so-frame). The app is a lit 3D scene with one sidebar. Click any rail, wall or board to change it, or click a rail to mount a camera on it. Drag the assembly timeline to watch the table go together.
+The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examples/so-frame). A pair of [i2rt YAM](https://github.com/i2rt-robotics/i2rt) arms (MIT, 610 mm apart as on i2rt's station) works on the worktop in the 3D view, stacking cubes on a scripted loop, so you can see the space and what each camera sees. The plywood texture and studio lighting come from [Poly Haven](https://polyhaven.com) (CC0). The app is a lit 3D scene with one sidebar. Click any rail, wall or board to change it, or click a rail to mount a camera on it. Drag the assembly timeline to watch the table go together.
 
 ## What you get
 
@@ -54,7 +54,12 @@ src/model.ts       params -> parts (members, panels, hardware, cameras), mass/in
 src/structure.ts   sizes legs, rails, supports and box from the rated load, cheapest first
 src/bom.ts         BOM, cut list, stock nesting, design checks
 src/geometry.ts    three.js geometry (T-slot profile, boxes, cylinders)
-src/world.ts       the 3D scene: lighting, picking, outlines, assembly timeline, explode, camera inset
+src/world.ts       the 3D scene: picking, outlines, assembly timeline, explode, camera preview
+src/studio.ts      lighting: studio HDRI, key light, shadows, backdrop
+src/surfaces.ts    realistic materials (generated and downloaded)
+src/arm.ts         URDF arms: kinematics and IK
+src/bench.ts       the YAM pair and its cube-stacking script
+public/robots/yam  YAM URDF and decimated meshes (i2rt, MIT)
 src/main.ts        the sidebar
 src/export/        urdf, mjcf, usd (+stl), glb, bundle (zip tree, DXF, cameras.json, README)
 scripts/generate.ts  command-line generator

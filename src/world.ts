@@ -9,6 +9,7 @@ import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { createStudio } from './studio.ts';
+import { Bench, loadKit, BENCH_MIN_WIDTH } from './bench.ts';
 import { Model, Part, V3 } from './model.ts';
 import { partGeometries } from './geometry.ts';
 import { Face } from './params.ts';
@@ -70,6 +71,23 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   let entries: Entry[] = [], model: Model | null = null;
   let mats: Record<string, THREE.Material> = {}, buildMats: Record<string, THREE.Material> = {};
   let xray = false, realistic = true;
+  // a pair of YAM arms stacking cubes on the worktop, loaded once in the background
+  let bench: Bench | null = null, armsOn = true;
+  const armMats = {
+    body: new THREE.MeshPhysicalMaterial({ color: 0x2b2d32, metalness: 0.55, roughness: 0.42, clearcoat: 0.2 }),
+    dark: new THREE.MeshPhysicalMaterial({ color: 0x151619, metalness: 0.2, roughness: 0.6 }),
+    cubes: [new THREE.MeshPhysicalMaterial({ color: 0xf4f4f2, roughness: 0.35, clearcoat: 0.3 }), new THREE.MeshPhysicalMaterial({ color: 0x2f6bff, roughness: 0.35, clearcoat: 0.3 })] as [THREE.Material, THREE.Material],
+  };
+  loadKit(new URL('robots/yam/', document.baseURI).href, 'hero').then(kit => { bench = new Bench(kit, armMats); root.add(bench.group); placeBench(); }).catch(e => console.warn('arms:', e));
+  function placeBench() {
+    if (!bench || !model) return;
+    const legs = model.profs.legs.s, box = model.profs.box.s;
+    const fits = model.p.width - 2 * legs >= BENCH_MIN_WIDTH && model.p.depth >= 380 && model.p.boxHeight >= 350;
+    bench.group.visible = armsOn && fits && step == null && explodeTo === 0;
+    bench.group.position.set(0, 0, model.worktopZ);
+    bench.layout(model.p.depth, legs / 2 + box / 2 + 75);
+    dirty = true;
+  }
   onTextureLoad(() => { dirty = true; });
   const ghost = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide });
   let step: number | null = null, explode = 0, explodeTo = 0, selected: string | null = null, hovered: string | null = null, pipCam: string | null = null;
@@ -110,6 +128,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     const [lo, hi] = m.bbox, r = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 1000;
     studio.fit(r * 1.1, new THREE.Vector3((lo[0] + hi[0]) / 2000, 0, -(lo[1] + hi[1]) / 2000));
     if (first) intro();
+    placeBench();
     apply();
   }
 
@@ -313,6 +332,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
       }
       e.mesh.position.set(e.home.x * explode, e.home.y * explode, e.home.z * explode + dz);
     }
+    if (bench?.group.visible) { bench.update(now / 1000); moving = true; }
     if (!moving && !dirty && !pipCam) return;
     dirty = false;
     drawPip();
@@ -321,8 +341,8 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
 
   return {
     setModel, view, resize,
-    setStep(n: number | null) { step = n; apply(); },
-    setExplode(on: boolean) { explodeTo = on ? 1 : 0; },
+    setStep(n: number | null) { step = n; placeBench(); apply(); },
+    setExplode(on: boolean) { explodeTo = on ? 1 : 0; placeBench(); },
     select(id: string | null) { selected = id; apply(); },
     showCamera(id: string | null, elOut: HTMLElement | null) { pipCam = id; pipEl = elOut; apply(); },
     placeMode(cb: ((h: PlaceHit) => void) | null) { placing = cb; renderer.domElement.style.cursor = cb ? 'crosshair' : ''; },
@@ -336,6 +356,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     },
     picture(): string { composer.render(); return renderer.domElement.toDataURL('image/png'); },
     setXray(on: boolean) { xray = on; apply(); },
+    setArms(on: boolean) { armsOn = on; placeBench(); },
     setRealistic(on: boolean) { realistic = on; if (model) setModel(model); },
     setInsets(l: number, r: number, t = 0, b = 0) {
       if (inset.l === l && inset.r === r && inset.t === t && inset.b === b) return;
