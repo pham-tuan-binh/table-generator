@@ -1,0 +1,22 @@
+# Renders the launch video on one cloud GPU with SkyPilot:
+#   sky launch -c tg-render video/sky-render.yaml --down
+#   rsync -av tg-render:~/sky_workdir/video/table-generator.mp4 video/
+name: tg-render
+resources:
+  infra: gcp
+  accelerators: {L4:1, T4:1, A100:1}
+  disk_size: 60
+workdir: .
+setup: |
+  set -e
+  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - >/dev/null
+  sudo apt-get install -y nodejs ffmpeg >/dev/null
+  npm install --no-audit --no-fund
+  npx playwright install --with-deps chromium
+run: |
+  set -e
+  nvidia-smi -L
+  (npx vite --port 5174 --strictPort > vite.log 2>&1 &)
+  sleep 6
+  GL=gpu node video/render.mjs video/table-generator.mp4 --workers 3
+  ls -la video/table-generator.mp4

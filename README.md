@@ -2,7 +2,7 @@
 
 ![Table Generator](.github/readme/app.png)
 
-Table Generator designs aluminium-extrusion test tables for robot arms: a table with a box frame on top for the arm and its cameras, a shelf underneath, and feet or casters. You set the size and the load it has to carry. It gives you the table as a simulation asset and the parts and instructions to build the real one.
+Table Generator designs aluminium-extrusion eval tables for robot arms: a table with a box frame on top for the arm and its cameras, a shelf underneath, and feet or casters. You set the size and the load it has to carry. It gives you the table as a simulation asset and the parts and instructions to build the real one.
 
 **Open it:** https://pham-tuan-binh.github.io/table-generator/
 
