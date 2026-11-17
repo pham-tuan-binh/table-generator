@@ -159,10 +159,12 @@ function shell(g: THREE.BufferGeometry): THREE.BufferGeometry {
   out = g.clone();
   out.computeBoundingBox();
   const b = out.boundingBox!, size = b.getSize(new THREE.Vector3()), ax = size.x > size.y ? (size.x > size.z ? 0 : 2) : size.y > size.z ? 1 : 2;
+  // one colour per triangle, from its centre, so the shell's edge is crisp instead of a grey blend
   const pos = out.attributes.position, col = new Float32Array(pos.count * 3), lo = b.min.getComponent(ax), len = size.getComponent(ax);
-  for (let i = 0; i < pos.count; i++) {
-    const t = (pos.getComponent(i, ax) - lo) / len, white = t > 0.2 && t < 0.8;
-    col.set(white ? [1, 1, 1] : [0.07, 0.075, 0.085], i * 3);
+  for (let i = 0; i + 2 < pos.count; i += 3) {
+    const t = ((pos.getComponent(i, ax) + pos.getComponent(i + 1, ax) + pos.getComponent(i + 2, ax)) / 3 - lo) / len;
+    const c = t > 0.17 && t < 0.83 ? [1, 1, 1] : [0.07, 0.075, 0.085];
+    for (let k = 0; k < 3; k++) col.set(c, (i + k) * 3);
   }
   out.setAttribute('color', new THREE.BufferAttribute(col, 3));
   shellCache.set(g, out);
