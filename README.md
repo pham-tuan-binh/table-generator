@@ -4,7 +4,7 @@
 
 Enter a few sizes and get a robot test table made of aluminium extrusion: a table with a box frame on top for the arm and cameras, a shelf and bracing below, and feet or casters underneath. The same parameters produce the sim assets for the virtual table and the build plan for the real one.
 
-The look and the box-on-a-table layout come from [SO-Frame](https://github.com/livekit-examples/so-frame). The 3D view follows [blueprint](https://github.com/pham-tuan-binh/blueprint): an orthographic technical drawing with yellow for the parts new in a step and red for the part you click.
+The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examples/so-frame). The app is a lit 3D scene with one sidebar. Click any rail, wall or board to change it, or click a rail to mount a camera on it. Drag the assembly timeline to watch the table go together.
 
 ## What you get
 
@@ -53,8 +53,8 @@ src/params.ts      inputs, limits, materials, profiles, camera presets, URL hash
 src/model.ts       params -> parts (members, panels, hardware, cameras), mass/inertia, build steps
 src/bom.ts         BOM, cut list, stock nesting, design checks
 src/geometry.ts    three.js geometry (T-slot profile, boxes, cylinders)
-src/viewer.ts      technical-drawing 3D view, camera inset, click-to-place
-src/drawings.ts    dimensioned top/front/side SVG
+src/world.ts       the 3D scene: lighting, picking, outlines, assembly timeline, explode, camera inset
+src/main.ts        the sidebar
 src/export/        urdf, mjcf, usd (+stl), glb, bundle (zip tree, DXF, cameras.json, README)
 scripts/generate.ts  command-line generator
 ```

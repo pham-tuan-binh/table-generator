@@ -1,78 +1,56 @@
 <!doctype html>
-<html lang="en" style="color-scheme:light">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <title>Table Generator</title>
-<meta name="description" content="Aluminium-extrusion robot test table with a box frame on top. Enter the sizes, get sim-ready URDF, MuJoCo and USD, a bill of materials and the build plan.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Cpath d=%22M2 3h12v2H2zM3 5h2v9H3zM11 5h2v9h-2zM5 9h6v1.5H5z%22 fill=%22%2314171a%22/%3E%3C/svg%3E">
+<meta name="description" content="Design an aluminium-extrusion robot test table in 3D. Get sim-ready URDF, MuJoCo, USD and glTF with cameras, a bill of materials and the build plan.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%2216%22 height=%2216%22 rx=%224%22 fill=%22%2314171a%22/%3E%3Cpath d=%22M3.5 5h9v1.4h-9zM4.3 6.4h1.3v6H4.3zM10.4 6.4h1.3v6h-1.3zM5.6 9.4h4.8v1H5.6z%22 fill=%22%23fff%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
-<main id="top">
-  <p class="kicker">Table Generator</p>
-  <h1 id="title">Robot test table</h1>
-  <p class="lede">An aluminium-extrusion table with a box frame on top for your arm, cameras anywhere on the frame, a shelf below. Set the sizes; the 3D model, the sim assets, the bill of materials and the build plan follow.</p>
+<div id="world" aria-label="3D table. Drag to orbit, scroll to zoom, click a part to edit it."></div>
 
-  <div class="split" id="model">
-    <div>
-      <div class="viewer-box">
-        <div class="viewer" id="viewer" role="img" aria-label="3D model. Drag to orbit, scroll to zoom, click a part to identify it."></div>
-        <div class="cams" role="group" aria-label="View"><button type="button" data-cam="iso">3/4</button><button type="button" data-cam="front">Front</button><button type="button" data-cam="side">Side</button><button type="button" data-cam="top">Top</button></div>
-        <div class="pick" id="pick" hidden></div>
-        <div class="placing" id="placing" hidden>Click a rail or post to mount <b id="placing-name"></b> <button type="button" class="btn sm" id="placing-cancel">Cancel</button></div>
-      </div>
-      <div class="dl" id="downloads">
-        <button type="button" class="btn primary" id="dl-zip"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg>Download everything (.zip)</button>
-        <div class="dls">
-          <button type="button" class="btn sm" data-dl="urdf">URDF</button>
-          <button type="button" class="btn sm" data-dl="mjcf">MJCF</button>
-          <button type="button" class="btn sm" data-dl="usd">USD</button>
-          <button type="button" class="btn sm" data-dl="glb">GLB</button>
-          <button type="button" class="btn sm" data-dl="bom">BOM .csv</button>
-          <button type="button" class="btn sm" data-dl="cams">cameras.json</button>
-          <button type="button" class="btn sm" data-dl="md">Build plan .md</button>
-        </div>
-      </div>
-    </div>
-    <section class="size" id="size" aria-labelledby="size-h">
-      <div class="size-h"><h2 id="size-h">Make it yours</h2></div>
-      <form id="form" onsubmit="return false"></form>
-      <div class="size-act">
-        <button type="button" class="btn" id="reset">Reset</button>
-        <button type="button" class="btn" id="copy-link">Copy link</button>
-        <label class="btn" for="load">Load params.json<input type="file" id="load" accept="application/json,.json" hidden></label>
-      </div>
-    </section>
+<aside class="side" id="side" aria-label="Table Generator">
+  <div class="side-h">
+    <div class="brand"><span class="logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 5h9M5 5v7M11 5v7M5 9h6"/></svg></span><b>Table Generator</b></div>
+    <button type="button" class="icon-btn" id="share" title="Copy link to this design" aria-label="Copy link"><svg viewBox="0 0 16 16"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 0 1 4 4l-1 1M9 11.5l-1 1a2.8 2.8 0 0 1-4-4l1-1"/></svg></button>
+    <button type="button" class="icon-btn" id="collapse" title="Hide sidebar" aria-label="Hide sidebar"><svg viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
   </div>
+  <p class="summary"><span id="dims"></span><button type="button" class="dot-btn" id="status"></button></p>
+  <div class="side-b" id="side-b">
+    <div id="selected"></div>
+    <div id="form"></div>
+  </div>
+  <div class="side-f">
+    <button type="button" class="btn solid grow" data-dl="zip"><svg viewBox="0 0 16 16"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg>Download everything</button>
+    <details class="more"><summary class="btn" aria-label="More formats"><svg viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg></summary>
+      <div class="menu">
+        <button type="button" data-dl="mjcf">MuJoCo <span>.zip</span></button>
+        <button type="button" data-dl="urdf">URDF <span>.zip</span></button>
+        <button type="button" data-dl="usd">OpenUSD <span>.usda</span></button>
+        <button type="button" data-dl="glb">glTF <span>.glb</span></button>
+        <button type="button" data-dl="cams">Cameras <span>.json</span></button>
+        <button type="button" data-dl="bom">Parts list <span>.csv</span></button>
+        <button type="button" data-dl="png">Picture <span>.png</span></button>
+        <label>Load params<input type="file" id="load" accept="application/json,.json" hidden><span>.json</span></label>
+        <button type="button" id="reset">Reset design</button>
+      </div>
+    </details>
+  </div>
+</aside>
+<button type="button" class="open-side" id="open-side" aria-label="Show sidebar" hidden><svg viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10"/></svg></button>
 
-  <nav class="toc" aria-label="Contents">
-    <p class="contents-h">Contents</p>
-    <ol class="contents">
-      <li><a href="#checks"><span class="cn">1</span><span class="ct">Checks</span><span class="cl"></span><span class="cm" id="toc-checks"></span></a></li>
-      <li><a href="#bom"><span class="cn">2</span><span class="ct">Bill of materials</span><span class="cl"></span><span class="cm" id="toc-bom"></span></a></li>
-      <li><a href="#cutlist"><span class="cn">3</span><span class="ct">Cut list</span><span class="cl"></span><span class="cm" id="toc-cut"></span></a></li>
-      <li><a href="#drawings"><span class="cn">4</span><span class="ct">Drawings</span><span class="cl"></span><span class="cm">top, front, side</span></a></li>
-      <li><a href="#cameras"><span class="cn">5</span><span class="ct">Cameras</span><span class="cl"></span><span class="cm" id="toc-cams"></span></a></li>
-      <li><a href="#sim"><span class="cn">6</span><span class="ct">Simulation</span><span class="cl"></span><span class="cm">URDF · MJCF · USD · GLB</span></a></li>
-      <li><a href="#steps"><span class="cn">7</span><span class="ct">Build steps</span><span class="cl"></span><span class="cm" id="toc-steps"></span></a></li>
-    </ol>
-  </nav>
-
-  <section class="sec" id="checks"><h2><span class="secn">1</span>Checks</h2><div id="checks-body"></div></section>
-  <section class="sec" id="bom"><h2><span class="secn">2</span>Bill of materials</h2><p class="totals" id="totals"></p><div class="wrap" id="bom-body"></div></section>
-  <section class="sec" id="cutlist"><h2><span class="secn">3</span>Cut list</h2><div class="wrap" id="cut-body"></div></section>
-  <section class="sec" id="drawings"><h2><span class="secn">4</span>Drawings</h2><div class="sheet" id="drawings-body"></div></section>
-  <section class="sec" id="cameras"><h2><span class="secn">5</span>Cameras</h2><div class="wrap" id="cams-body"></div></section>
-  <section class="sec" id="sim"><h2><span class="secn">6</span>Simulation</h2><div id="sim-body"></div></section>
-  <section class="sec" id="steps"><h2><span class="secn">7</span>Build steps</h2>
-    <div class="steps-grid">
-      <div id="steps-body"></div>
-      <aside class="step-3d" aria-label="3D model at the step you are reading"><div class="viewer-box"><div class="viewer" id="viewer-steps"></div></div><p class="step-3d-cap" id="step-3d-cap"></p></aside>
-    </div>
-  </section>
-</main>
+<div class="pip" id="pip" hidden>
+  <div class="pip-view" id="pip-view"></div>
+  <div class="pip-bar"><select id="pip-select" aria-label="Camera"></select><button type="button" class="icon-btn sm" id="pip-close" aria-label="Hide camera view"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+</div>
+<div class="tip" id="tip" hidden></div>
+<div class="placing" id="placing" hidden><span>Click a rail or post to mount <b id="placing-name"></b></span><button type="button" class="ghost" id="placing-cancel">Cancel</button></div>
 <div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="./src/main.ts"></script>
 </body>

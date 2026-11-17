@@ -1,15 +1,16 @@
-// The page: the form, the two 3D views, every section, and the downloads. State lives in
-// the URL hash so a design is a link.
+// One sidebar over the world. Everything lives in it: the selected part, every parameter,
+// cameras, an assembly timeline, the parts list, view toggles and the downloads.
+// The design is kept in the URL hash, so a link is the design.
 import JSZip from 'jszip';
-import { Params, DEFAULTS, PROFILES, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, CameraSpec, Face } from './params.ts';
-import { buildModel, Model, round } from './model.ts';
-import { createViewer, Viewer, PickInfo } from './viewer.ts';
+import { Params, DEFAULTS, PROFILES, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, PanelFace, Face } from './params.ts';
+import { buildModel, Model, Part, round } from './model.ts';
+import { createWorld, Hit, PlaceHit } from './world.ts';
 import { bom, cutList, nest, checks, bomCsv } from './bom.ts';
-import { drawingsSvg } from './drawings.ts';
-import { bundle, cameraJson, readme, Files } from './export/bundle.ts';
+import { bundle, cameraJson, Files } from './export/bundle.ts';
 import { glb } from './export/glb.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector(s) as T;
+const $$ = <T extends HTMLElement = HTMLElement>(s: string, r: ParentNode = document) => [...r.querySelectorAll(s)] as T[];
 const esc = (s: unknown) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const store = {
   get<T>(k: string, d: T): T { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -18,336 +19,356 @@ const store = {
 
 let P: Params = fromHash(location.hash.slice(1));
 let M: Model = buildModel(P);
-let pipCam: string | null = P.cameras[0]?.id ?? null;
-let openCam: string | null = null;
+let sel: { id: string; place: PlaceHit | null } | null = null;
+let pipCam: string | null = P.cameras[0]?.id ?? null, pipOn = true;
+let stepIdx = -1;   // -1 = the finished table; otherwise an index into M.steps
+let markOf: Record<string, string> = {};
 
-// ------------------------------------------------------------------ form
-type Field = {
-  key: keyof Params; label: string; type: 'num' | 'select' | 'bool' | 'color' | 'range';
-  unit?: string; options?: [string | number, string][]; hint?: string; show?: (p: Params) => boolean;
-};
-const opt = (o: Record<string, string>) => Object.entries(o) as [string, string][];
-const GROUPS: [string, Field[]][] = [
-  ['Size', [
-    { key: 'width', label: 'Width', type: 'num', unit: 'mm', hint: 'outside, left to right' },
-    { key: 'depth', label: 'Depth', type: 'num', unit: 'mm', hint: 'outside, front to back' },
-    { key: 'tableHeight', label: 'Table height', type: 'num', unit: 'mm', hint: 'floor to the top of the worktop rails' },
-    { key: 'boxHeight', label: 'Box height', type: 'num', unit: 'mm', hint: 'worktop rails to the top of the box' },
-    { key: 'profile', label: 'Extrusion', type: 'select', options: Object.values(PROFILES).map(p => [p.id, p.name]) },
-  ]],
-  ['Below the worktop', [
-    { key: 'shelf', label: 'Storage shelf', type: 'bool' },
-    { key: 'lowerRing', label: 'Lower rails', type: 'select', options: opt({ full: 'All four sides', 'sides-back': 'Sides and back (open front)', none: 'None' }), show: p => !p.shelf, hint: 'reinforcement ring near the floor' },
-    { key: 'lowerHeight', label: 'Shelf / lower rail height', type: 'num', unit: 'mm', show: p => p.lowerRing !== 'none' },
-    { key: 'supports', label: 'Worktop supports', type: 'select', options: [[-1, 'Auto'], [0, 'None'], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5'], [6, '6']], hint: 'bars front to back under the worktop' },
-  ]],
-  ['Base', [
-    { key: 'base', label: 'Base', type: 'select', options: opt({ feet: 'Levelling feet', casters: 'Casters with brakes' }) },
-    { key: 'casterWheel', label: 'Caster wheel', type: 'select', options: Object.keys(CASTERS).map(k => [Number(k), `Ø${k} mm`]), show: p => p.base === 'casters' },
-  ]],
-  ['Box', [
-    { key: 'overheadBar', label: 'Overhead camera bar', type: 'bool' },
-    { key: 'overheadBarY', label: 'Bar position', type: 'num', unit: 'mm', hint: 'from the centre, + toward the back', show: p => p.overheadBar },
-  ]],
-  ['Panels', [
-    { key: 'panelMaterial', label: 'Wall material', type: 'select', options: MATERIALS.map(m => [m.id, m.name]) },
-    { key: 'panelThk', label: 'Wall thickness', type: 'num', unit: 'mm', hint: 'held in the slots' },
-    { key: 'worktop', label: 'Worktop board', type: 'bool' },
-    { key: 'worktopMaterial', label: 'Worktop material', type: 'select', options: MATERIALS.map(m => [m.id, m.name]), show: p => p.worktop },
-    { key: 'worktopThk', label: 'Worktop thickness', type: 'num', unit: 'mm', show: p => p.worktop },
-    { key: 'shelfMaterial', label: 'Shelf material', type: 'select', options: MATERIALS.map(m => [m.id, m.name]), show: p => p.shelf },
-    { key: 'shelfThk', label: 'Shelf thickness', type: 'num', unit: 'mm', show: p => p.shelf },
-  ]],
-  ['Colours', [
-    { key: 'frameColor', label: 'Extrusion', type: 'color' },
-    { key: 'panelColor', label: 'Walls', type: 'color' },
-    { key: 'worktopColor', label: 'Worktop and shelf', type: 'color' },
-    { key: 'panelOpacity', label: 'Wall opacity', type: 'range' },
-  ]],
-  ['Stock', [
-    { key: 'stockLength', label: 'Buy extrusion as', type: 'select', options: [[0, 'Cut to length'], [500, '500 mm bars'], [1000, '1000 mm bars'], [1500, '1500 mm bars'], [2000, '2000 mm bars'], [3000, '3000 mm bars']] },
-    { key: 'kerf', label: 'Saw kerf', type: 'num', unit: 'mm', show: p => p.stockLength > 0 },
-  ]],
-];
-const FRAME_COLORS: [string, string][] = [['#c4c7cb', 'Silver'], ['#26272a', 'Black'], ['#d8a028', 'Gold'], ['#3d6fb6', 'Blue']];
+// ------------------------------------------------------------------ fields
+type Opt = [string | number, string];
+interface F { key: keyof Params; label: string; type: 'num' | 'seg' | 'select' | 'bool' | 'color' | 'range'; unit?: string; options?: Opt[]; show?: (p: Params) => boolean; swatches?: string[] }
+const FRAME_SW = ['#eef0f2', '#d4d7db', '#9a9fa6', '#4b5058', '#232427'];
+const PANEL_SW = ['#f4f4f2', '#dfe2e6', '#b9bec6', '#cfe3ee', '#2b2c30'];
+const BOARD_SW = ['#f3f3f1', '#e3e5e8', '#a9aeb5', '#d9b98c', '#2b2c30'];
+const MAT_OPTS: Opt[] = MATERIALS.map(m => [m.id, m.name]);
+const FIELDS: Record<string, F> = Object.fromEntries(([
+  { key: 'width', label: 'Width', type: 'num', unit: 'mm' },
+  { key: 'depth', label: 'Depth', type: 'num', unit: 'mm' },
+  { key: 'tableHeight', label: 'Table height', type: 'num', unit: 'mm' },
+  { key: 'boxHeight', label: 'Box height', type: 'num', unit: 'mm' },
+  { key: 'profile', label: 'Extrusion', type: 'seg', options: Object.values(PROFILES).map(p => [p.id, p.id]) },
+  { key: 'shelf', label: 'Storage shelf', type: 'bool' },
+  { key: 'lowerRing', label: 'Lower rails', type: 'seg', options: [['full', 'All sides'], ['sides-back', 'Open front'], ['none', 'None']], show: p => !p.shelf },
+  { key: 'lowerHeight', label: 'Shelf height', type: 'num', unit: 'mm', show: p => p.lowerRing !== 'none' },
+  { key: 'supports', label: 'Worktop supports', type: 'seg', options: [[-1, 'Auto'], [0, '0'], [1, '1'], [2, '2'], [3, '3'], [4, '4']] },
+  { key: 'overheadBar', label: 'Overhead camera bar', type: 'bool' },
+  { key: 'overheadBarY', label: 'Bar position', type: 'num', unit: 'mm', show: p => p.overheadBar },
+  { key: 'base', label: 'Base', type: 'seg', options: [['feet', 'Feet'], ['casters', 'Casters']] },
+  { key: 'casterWheel', label: 'Wheel', type: 'seg', options: Object.keys(CASTERS).map(k => [Number(k), `Ø${k}`]), show: p => p.base === 'casters' },
+  { key: 'panelMaterial', label: 'Wall material', type: 'select', options: MAT_OPTS },
+  { key: 'panelThk', label: 'Wall thickness', type: 'num', unit: 'mm' },
+  { key: 'worktop', label: 'Worktop board', type: 'bool' },
+  { key: 'worktopMaterial', label: 'Worktop material', type: 'select', options: MAT_OPTS, show: p => p.worktop },
+  { key: 'worktopThk', label: 'Worktop thickness', type: 'num', unit: 'mm', show: p => p.worktop },
+  { key: 'shelfMaterial', label: 'Shelf material', type: 'select', options: MAT_OPTS, show: p => p.shelf },
+  { key: 'shelfThk', label: 'Shelf thickness', type: 'num', unit: 'mm', show: p => p.shelf },
+  { key: 'frameColor', label: 'Extrusion', type: 'color', swatches: FRAME_SW },
+  { key: 'panelColor', label: 'Walls', type: 'color', swatches: PANEL_SW },
+  { key: 'worktopColor', label: 'Worktop', type: 'color', swatches: BOARD_SW },
+  { key: 'shelfColor', label: 'Shelf', type: 'color', swatches: BOARD_SW },
+  { key: 'panelOpacity', label: 'Wall opacity', type: 'range' },
+  { key: 'stockLength', label: 'Buy extrusion as', type: 'select', options: [[0, 'Cut to length'], [500, '500 mm bars'], [1000, '1000 mm bars'], [1500, '1500 mm bars'], [2000, '2000 mm bars'], [3000, '3000 mm bars']] },
+  { key: 'kerf', label: 'Saw kerf', type: 'num', unit: 'mm', show: p => p.stockLength > 0 },
+] as F[]).map(f => [f.key, f]));
+const LIM: Record<string, { min: number; max: number; step: number }> = LIMITS as any;
+const pct = (k: string, v: number) => { const l = LIM[k]; return l ? `${((v - l.min) / (l.max - l.min)) * 100}%` : '50%'; };
 
-function fieldHtml(f: Field): string {
-  const v = P[f.key] as unknown, id = `f-${f.key}`, lim = LIMITS[f.key];
-  const hint = f.hint || (lim && f.type === 'num' ? `${lim.min}–${lim.max}` : '');
-  const small = hint ? `<small>${esc(hint)}</small>` : '';
-  const wrap = (inner: string, cls = 'field') => `<label class="${cls}" for="${id}" data-row="${f.key}">${inner}</label>`;
-  if (f.type === 'bool') return wrap(`<input type="checkbox" id="${id}" data-k="${f.key}" ${v ? 'checked' : ''}><span>${esc(f.label)}</span>`, 'field check');
-  if (f.type === 'select') return wrap(`<span>${esc(f.label)}</span><select id="${id}" data-k="${f.key}">${f.options!.map(([o, l]) => `<option value="${esc(o)}" ${String(o) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>${small}`);
-  if (f.type === 'color') {
-    const sw = f.key === 'frameColor' ? `<span class="dls">${FRAME_COLORS.map(([c, n]) => `<button type="button" class="btn sm" data-swatch="${c}" title="${n}" style="padding:3px 6px"><span style="display:inline-block;width:12px;height:12px;background:${c};border:1px solid #0003"></span></button>`).join('')}</span>` : '';
-    return wrap(`<span>${esc(f.label)}</span><span style="display:inline-flex;gap:6px;align-items:center">${sw}<input type="color" id="${id}" data-k="${f.key}" value="${esc(v)}"></span>`);
+function field(key: keyof Params, label?: string): string {
+  const f = FIELDS[key], v = P[key] as unknown, lab = esc(label ?? f.label), row = (inner: string) => `<div class="row" data-row="${key}">${inner}</div>`;
+  if (f.type === 'bool') return row(`<label class="switch"><span>${lab}</span><input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}></label>`);
+  if (f.type === 'seg') return row(`<div class="row-h"><span class="l">${lab}</span></div><div class="seg" role="group" aria-label="${lab}">${f.options!.map(([o, l]) => `<button type="button" data-k="${key}" data-v="${o}" aria-pressed="${String(o) === String(v)}">${esc(l)}</button>`).join('')}</div>`);
+  if (f.type === 'select') return row(`<div class="row-h"><span class="l">${lab}</span></div><select class="sel" data-k="${key}" aria-label="${lab}">${f.options!.map(([o, l]) => `<option value="${o}" ${String(o) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`);
+  if (f.type === 'color') return row(`<div class="row-h"><span class="l">${lab}</span><span class="num"><i data-hex="${key}">${esc(v)}</i></span></div><div class="swatches">${f.swatches!.map(c => `<button type="button" class="sw" style="background:${c}" data-k="${key}" data-v="${c}" aria-pressed="${c === v}" aria-label="${c}"></button>`).join('')}<label class="sw custom" title="Custom colour"><input type="color" data-k="${key}" value="${esc(v)}" aria-label="Custom ${lab} colour"></label></div>`);
+  const l = LIM[key]!;
+  if (f.type === 'range') return row(`<div class="row-h"><span class="l">${lab}</span><span class="num"><i data-out="${key}">${Math.round(Number(v) * 100)}%</i></span></div><input type="range" data-k="${key}" min="${l.min}" max="${l.max}" step="${l.step}" value="${v}" style="--p:${pct(key, Number(v))}" aria-label="${lab}">`);
+  return row(`<div class="row-h"><label class="l" for="n-${key}">${lab}</label><span class="num"><input id="n-${key}" type="number" inputmode="decimal" data-k="${key}" value="${v}" min="${l.min}" max="${l.max}" step="${l.step}"><i>${esc(f.unit || '')}</i></span></div><input type="range" data-k="${key}" min="${l.min}" max="${l.max}" step="${l.step}" value="${v}" style="--p:${pct(key, Number(v))}" aria-label="${lab}" tabindex="-1">`);
+}
+const walls = () => `<div class="row"><div class="row-h"><span class="l">Walls</span></div><div class="pills">${(['back', 'left', 'right', 'front', 'roof'] as PanelFace[]).map(k => `<label><input type="checkbox" data-panel="${k}" ${P.panels[k] ? 'checked' : ''}><span>${k[0].toUpperCase() + k.slice(1)}</span></label>`).join('')}</div></div>`;
+
+// ------------------------------------------------------------------ sidebar
+function renderSide() {
+  const open = store.get<Record<string, boolean>>('tg:open2', { size: true });
+  const sec = (id: string, name: string, body: string) => `<details class="sec" data-sec="${id}" ${open[id] ? 'open' : ''}><summary>${name}<span class="meta" id="meta-${id}"></span></summary><div>${body}</div></details>`;
+  const k = (...keys: (keyof Params)[]) => keys.map(x => field(x)).join('');
+  $('#form').innerHTML = [
+    sec('size', 'Size', k('width', 'depth', 'tableHeight', 'boxHeight', 'profile')),
+    sec('structure', 'Structure', k('shelf', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
+    sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfMaterial', 'shelfThk')),
+    sec('colours', 'Colours', k('frameColor', 'panelColor', 'worktopColor', 'shelfColor', 'panelOpacity')),
+    sec('cameras', 'Cameras', `<div id="cam-list" class="list"></div><button type="button" class="add" id="cam-add">Add a camera</button>`),
+    sec('assembly', 'Assembly', `<div class="timeline" id="timeline"></div>`),
+    sec('parts', 'Parts list', `<div id="parts"></div>${k('stockLength', 'kerf')}`),
+    sec('view', 'View', `<div class="seg" role="group" aria-label="View">${[['iso', '3/4'], ['front', 'Front'], ['side', 'Side'], ['top', 'Top']].map(([v, l]) => `<button type="button" data-view="${v}">${l}</button>`).join('')}</div>
+      <label class="switch"><span>See through walls</span><input type="checkbox" id="v-xray"></label>
+      <label class="switch"><span>Exploded</span><input type="checkbox" id="v-explode"></label>
+      <label class="switch"><span>Camera preview</span><input type="checkbox" id="v-pip" ${pipOn ? 'checked' : ''}></label>`),
+    sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
+  ].join('');
+  $$<HTMLDetailsElement>('details.sec').forEach(d => d.addEventListener('toggle', () => {
+    open[d.dataset.sec!] = d.open; store.set('tg:open2', open);
+    if (d.dataset.sec === 'assembly' && !d.open) { stopPlay(); setStep(-1); }
+  }));
+  $('#v-xray').addEventListener('change', e => world.setXray((e.target as HTMLInputElement).checked));
+  $('#v-explode').addEventListener('change', e => world.setExplode((e.target as HTMLInputElement).checked));
+  $('#v-pip').addEventListener('change', e => { pipOn = (e.target as HTMLInputElement).checked; syncPip(); });
+  renderDynamic();
+  syncAll();
+}
+
+// the parts of the sidebar that are lists, redrawn on every change
+function renderDynamic() {
+  $('#cam-list').innerHTML = M.cameras.map(c => `<button type="button" class="cam-item" data-pick="cam_${c.spec.id}"><b>${esc(c.spec.name)}</b><small>${c.spec.width}×${c.spec.height} · ${c.hfov.toFixed(0)}°</small></button>`).join('');
+  $('#meta-cameras').textContent = String(M.cameras.length);
+  renderTimeline();
+  const cuts = cutList(M), metres = cuts.reduce((a, c) => a + c.length * c.qty, 0) / 1000, lines = bom(M);
+  const stock = P.stockLength ? nest(M) : null, pieces = cuts.reduce((a, c) => a + c.qty, 0);
+  $('#parts').innerHTML = `<div class="stats"><div class="stat"><b>${round(metres)} m</b><span>${M.prof.id}</span></div><div class="stat"><b>${pieces}</b><span>pieces</span></div><div class="stat"><b>${round(M.mass)} kg</b><span>mass</span></div></div>
+    <p class="sub">Cut list</p><div class="list">${cuts.map(c => `<div class="li"><span class="mark">${c.mark}</span><span class="t">${c.length} mm<small>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}${c.taps ? ` · ${esc(c.taps)}` : ''}</small></span><span class="q">×${c.qty}</span></div>`).join('')}</div>
+    ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
+    <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
+  $('#meta-parts').textContent = `${pieces} pieces`;
+  const cks = checks(M), bad = cks.filter(c => !c.ok);
+  $('#checks').innerHTML = cks.map(c => `<div class="ck ${c.ok ? 'ok' : c.level}">${esc(c.text)}</div>`).join('');
+  $('#meta-checks').textContent = bad.length ? `${bad.length} to review` : 'all pass';
+  const st = $('#status');
+  st.className = `dot-btn ${bad.some(c => c.level === 'error') ? 'bad' : bad.length ? 'warn' : ''}`;
+  st.textContent = bad.length ? `${bad.length} check${bad.length > 1 ? 's' : ''} to review` : 'All checks pass';
+  $('#dims').textContent = `${round(P.width)} × ${round(P.depth)} × ${round(M.topZ)} mm`;
+}
+
+// push P into every bound control that is not being typed in
+function syncAll() {
+  for (const el of $$<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('[data-k]')) {
+    const k = el.dataset.k as keyof Params, v = P[k] as unknown;
+    if (el instanceof HTMLButtonElement) { el.setAttribute('aria-pressed', String(String(el.dataset.v) === String(v))); continue; }
+    if (el === document.activeElement && (el as HTMLInputElement).type === 'number') continue;
+    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = !!v;
+    else el.value = String(v);
+    if ((el as HTMLInputElement).type === 'range') el.style.setProperty('--p', pct(k, Number(v)));
   }
-  if (f.type === 'range') return wrap(`<span>${esc(f.label)}</span><input type="range" id="${id}" data-k="${f.key}" min="${lim!.min}" max="${lim!.max}" step="${lim!.step}" value="${v}">`);
-  return wrap(`<span>${esc(f.label)}</span><span class="inp"><input type="number" inputmode="decimal" id="${id}" data-k="${f.key}" value="${v}" min="${lim?.min ?? ''}" max="${lim?.max ?? ''}" step="${lim?.step ?? 1}"><i>${esc(f.unit || '')}</i></span>${small}`);
+  $$<HTMLElement>('[data-out]').forEach(o => (o.textContent = `${Math.round(Number(P[o.dataset.out as keyof Params]) * 100)}%`));
+  $$<HTMLElement>('[data-hex]').forEach(o => (o.textContent = String(P[o.dataset.hex as keyof Params])));
+  $$<HTMLInputElement>('[data-panel]').forEach(c => (c.checked = P.panels[c.dataset.panel as PanelFace]));
+  $$<HTMLElement>('[data-row]').forEach(r => { const f = FIELDS[r.dataset.row!]; r.hidden = !!f?.show && !f.show(P); });
 }
 
-function renderForm() {
-  const walls = (['back', 'left', 'right', 'front', 'roof'] as const).map(k => `<label><input type="checkbox" data-panel="${k}" ${P.panels[k] ? 'checked' : ''}>${k[0].toUpperCase() + k.slice(1)}</label>`).join('');
-  $('#form').innerHTML = GROUPS.map(([g, fs]) => `<fieldset><legend>${esc(g)}</legend>${g === 'Panels' ? `<div class="checks-row" role="group" aria-label="Box walls">${walls}</div>` : ''}${fs.map(fieldHtml).join('')}</fieldset>`).join('')
-    + `<fieldset><legend>Cameras</legend><div id="cam-list"></div><div class="cam-act"><button type="button" class="btn" id="cam-add">+ Add camera</button></div></fieldset>`;
-  renderCams();
-  syncVisibility();
-}
-function syncVisibility() {
-  for (const [, fs] of GROUPS) for (const f of fs) {
-    const row = document.querySelector<HTMLElement>(`[data-row="${f.key}"]`);
-    if (row) row.hidden = !!f.show && !f.show(P);
-  }
-}
-// put normalized values back into the inputs that are not being typed in
-function syncForm() {
-  for (const el of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('#form [data-k]')) {
-    if (el === document.activeElement && el.type === 'number') continue;
-    const v = P[el.dataset.k as keyof Params] as unknown;
-    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = !!v; else el.value = String(v);
-  }
-  syncVisibility();
-}
-
-$('#form').addEventListener('input', e => {
-  const el = e.target as HTMLInputElement;
-  if (el.dataset.panel) { P.panels[el.dataset.panel as keyof Params['panels']] = el.checked; return update(); }
-  if (el.dataset.cam) return camInput(el);
-  const k = el.dataset.k as keyof Params;
-  if (!k) return;
+function setParam(k: keyof Params, raw: unknown) {
   const def = DEFAULTS[k];
-  let v: unknown = el.type === 'checkbox' ? el.checked : typeof def === 'number' ? parseFloat(el.value) : el.value;
+  const v = typeof def === 'number' ? Number(raw) : typeof def === 'boolean' ? !!raw : raw;
   if (typeof v === 'number' && !Number.isFinite(v)) return;
   (P as any)[k] = v;
   // a new material brings its usual thickness and colour
   if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, PROFILES[P.profile].slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
   if (k === 'worktopMaterial') { const m = material(String(v)); P.worktopThk = m.thk; P.worktopColor = m.color; }
-  if (k === 'shelfMaterial') P.shelfThk = material(String(v)).thk;
-  update(el.type !== 'number');
+  if (k === 'shelfMaterial') { const m = material(String(v)); P.shelfThk = m.thk; P.shelfColor = m.color; }
+  update();
+}
+
+document.addEventListener('input', e => {
+  const el = e.target as HTMLInputElement;
+  if (el.dataset.panel) { P.panels[el.dataset.panel as PanelFace] = el.checked; return update(); }
+  if (el.dataset.cam) return camInput(el);
+  if (el.id === 'tl') { stopPlay(); return setStep(Number(el.value) >= M.steps.length ? -1 : Number(el.value)); }
+  if (el.dataset.k) setParam(el.dataset.k as keyof Params, el.type === 'checkbox' ? el.checked : el.value);
 });
-$('#form').addEventListener('change', e => { if ((e.target as HTMLInputElement).type === 'number') syncForm(); });
-$('#form').addEventListener('click', e => {
-  const t = e.target as HTMLElement, sw = t.closest<HTMLElement>('[data-swatch]');
-  if (sw) { P.frameColor = sw.dataset.swatch!; update(true); }
-  if (t.id === 'cam-add') addCamera();
+document.addEventListener('change', e => { if ((e.target as HTMLInputElement).type === 'number') syncAll(); });
+document.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  const kv = t.closest<HTMLButtonElement>('button[data-k]');
+  if (kv) return setParam(kv.dataset.k as keyof Params, kv.dataset.v);
+  const pick = t.closest<HTMLElement>('[data-pick]');
+  if (pick) return selectPart(pick.dataset.pick!, null, true);
+  const view = t.closest<HTMLElement>('[data-view]');
+  if (view) return world.view(view.dataset.view!);
   const act = t.closest<HTMLElement>('[data-act]');
-  if (act) camAction(act.dataset.act!, act.dataset.id!);
+  if (act) return action(act.dataset.act!, act.dataset.arg);
+  const face = t.closest<HTMLElement>('[data-cam-face]');
+  if (face) return camSet(c => (c.face = face.dataset.camFace as Face));
+  if (t.closest('#cam-add')) return addCamera();
+  if (t.closest('#status')) { const d = $<HTMLDetailsElement>('[data-sec=checks]'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+  if (!t.closest('details.more')) $<HTMLDetailsElement>('details.more').open = false;
 });
+
+// ------------------------------------------------------------------ world
+const tip = $('#tip');
+const world = createWorld($('#world'), {
+  onHover(h: Hit | null) {
+    if (!h) { tip.hidden = true; return; }
+    tip.hidden = false;
+    tip.style.left = `${h.screen[0]}px`; tip.style.top = `${h.screen[1]}px`;
+    tip.innerHTML = placing && h.place ? `Mount here<span>${esc(h.part.name)} · ${Math.round(h.place.along * 100)}%</span>` : `${esc(h.part.name)}<span>${esc(h.part.spec)}</span>`;
+  },
+  onSelect(h: Hit | null) { selectPart(h ? h.part.id : null, h?.place ?? null); },
+});
+let placing: ((h: PlaceHit) => void) | null = null;
+
+// ------------------------------------------------------------------ the selected part
+const ROLE_COLOR: Record<string, keyof Params> = { frame: 'frameColor', panel: 'panelColor', worktop: 'worktopColor', shelf: 'shelfColor' };
+const colorOf = (p: Part) => { const k = ROLE_COLOR[p.role]; return k ? String(P[k]) : p.role === 'cam' ? '#1c2230' : p.role === 'hw' ? '#9a9ea5' : '#2a2b2f'; };
+function selectPart(id: string | null, place: PlaceHit | null = null, focus = false) {
+  sel = id ? { id, place } : null;
+  world.select(id);
+  if (id && focus) world.focus(id);
+  if (id?.startsWith('cam_')) { pipCam = id.slice(4); syncPip(); }
+  if (id) showSide(true);
+  renderSelected();
+  if (id) $('#side-b').scrollTo({ top: 0, behavior: 'smooth' });
+}
+function renderSelected() {
+  const box = $('#selected'), part = sel && M.parts.find(p => p.id === sel!.id);
+  if (!part) { box.innerHTML = ''; return; }
+  const kind = part.kind === 'member' ? 'Extrusion' : part.role === 'panel' ? 'Wall' : part.kind === 'panel' ? 'Board' : part.kind === 'camera' ? 'Camera' : 'Hardware';
+  let body = '';
+  if (part.member) {
+    body = field('frameColor', 'Colour, all extrusion') + `<div class="actions">${sel!.place ? `<button type="button" class="btn solid" data-act="mount-here">Mount a camera here</button>` : ''}<button type="button" class="btn" data-act="focus">Focus</button></div>`;
+  } else if (part.role === 'panel') {
+    const face = part.id.replace('panel_', '');
+    body = field('panelColor', 'Colour, all walls') + field('panelOpacity') + `<div class="actions"><button type="button" class="btn quiet" data-act="remove-wall" data-arg="${face}">Remove this ${face === 'roof' ? 'roof' : 'wall'}</button></div>`;
+  } else if (part.role === 'worktop' || part.role === 'shelf') {
+    const w = part.role === 'worktop';
+    body = field(w ? 'worktopColor' : 'shelfColor', 'Colour') + field(w ? 'worktopMaterial' : 'shelfMaterial', 'Material') + `<div class="actions"><button type="button" class="btn quiet" data-act="remove-board" data-arg="${part.role}">Remove the ${part.role}</button></div>`;
+  } else if (part.kind === 'camera') body = cameraEditor(part.id.slice(4));
+  else if (part.id.startsWith('foot') || part.id.startsWith('caster')) body = field('base') + field('casterWheel');
+  const mark = markOf[part.id] || '', light = /^#(f|e|d|c)/i.test(colorOf(part));
+  box.innerHTML = `<div class="selcard"><div class="selcard-h"><span class="chip" style="background:${colorOf(part)};color:${light ? '#1a47c9' : '#fff'}">${mark}</span><div><span class="k">${kind}</span><b>${esc(part.name)}</b><span class="spec">${esc(part.spec)}</span></div><button type="button" class="icon-btn" data-act="deselect" aria-label="Deselect"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>${body}</div>`;
+  syncAll();
+}
 
 // ------------------------------------------------------------------ cameras
-const FACES: Face[] = ['-z', '+z', '-y', '+y', '-x', '+x'];
-const FACE_NAME: Record<Face, string> = { '-z': 'underside (−z)', '+z': 'top (+z)', '-y': 'front (−y)', '+y': 'back (+y)', '-x': 'left (−x)', '+x': 'right (+x)' };
-function memberOptions(sel: string) {
-  const members = M.parts.filter(p => p.member);
-  const has = members.some(m => m.id === sel);
-  return (has ? '' : `<option value="${esc(sel)}" selected>(missing) ${esc(sel)}</option>`) + members.map(m => `<option value="${m.id}" ${m.id === sel ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+const FACE_NAME: Record<Face, string> = { '-z': 'Under', '+z': 'Top', '-y': 'Front', '+y': 'Back', '-x': 'Left', '+x': 'Right' };
+function cameraEditor(id: string): string {
+  const c = P.cameras.find(x => x.id === id);
+  if (!c) return '';
+  const num = (k: string, label: string, unit: string, v: number, step = 1) => `<div class="row-h"><label class="l">${label}</label><span class="num"><input type="number" data-cam="${id}" data-ck="${k}" value="${v}" step="${step}"><i>${unit}</i></span></div>`;
+  return `<div class="row"><input class="txt" type="text" data-cam="${id}" data-ck="name" value="${esc(c.name)}" aria-label="Name" spellcheck="false"></div>
+    <div class="row"><select class="sel" data-cam="${id}" data-ck="preset" aria-label="Camera model">${CAMERA_PRESETS.map(p => `<option value="${p.id}" ${p.id === c.preset ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="row">${num('width', 'Width', 'px', c.width)}${num('height', 'Height', 'px', c.height)}${num('hfov', 'Horizontal FOV', '°', c.hfov, 0.1)}</div>
+    <div class="row"><div class="row-h"><span class="l">Along the ${esc((M.parts.find(p => p.id === c.mount)?.name || c.mount).split(',')[0].toLowerCase())}</span><span class="num"><i>${Math.round(c.along * 100)}%</i></span></div><input type="range" data-cam="${id}" data-ck="along" min="0" max="1" step="0.005" value="${c.along}" style="--p:${c.along * 100}%"></div>
+    <div class="row"><div class="row-h"><span class="l">On its face</span></div><div class="seg">${(['-z', '+z', '-y', '+y', '-x', '+x'] as Face[]).map(f => `<button type="button" data-cam-face="${f}" aria-pressed="${f === c.face}">${FACE_NAME[f]}</button>`).join('')}</div></div>
+    <div class="row"><div class="row-h"><span class="l">Looks at</span><span class="num" style="gap:4px">${[0, 1, 2].map(i => `<input type="number" data-cam="${id}" data-ck="target.${i}" value="${c.target[i]}" step="10" aria-label="${'xyz'[i]}" style="width:46px">`).join('')}<i>mm</i></span></div><small style="color:var(--fg3);font-size:11px">x, y, z from the centre of the worktop</small></div>
+    <div class="actions"><button type="button" class="btn solid" data-act="move-cam">Move it</button><button type="button" class="btn" data-act="view-cam">Preview</button><button type="button" class="btn quiet" data-act="remove-cam">Remove</button></div>`;
 }
-function camNum(c: CameraSpec, key: string, label: string, unit: string, v: number, step = 1, extra = '') {
-  return `<label class="field"><span>${label}</span><span class="inp"><input type="number" data-cam="${c.id}" data-ck="${key}" value="${v}" step="${step}" ${extra}><i>${unit}</i></span></label>`;
-}
-function renderCams() {
-  const list = $('#cam-list');
-  if (!list) return;
-  list.innerHTML = P.cameras.map(c => {
-    const pose = M.cameras.find(x => x.spec.id === c.id);
-    return `<details class="cam-card" data-card="${c.id}" ${openCam === c.id ? 'open' : ''}>
-      <summary><span class="dot" style="${pipCam === c.id ? '' : 'opacity:.35'}"></span>${esc(c.name)}<small>${c.width}×${c.height} · ${pose ? pose.hfov.toFixed(0) : c.hfov}°</small></summary>
-      <div class="cam-body">
-        <label class="field"><span>Name</span><input type="text" data-cam="${c.id}" data-ck="name" value="${esc(c.name)}" spellcheck="false"></label>
-        <label class="field"><span>Camera</span><select data-cam="${c.id}" data-ck="preset">${CAMERA_PRESETS.map(p => `<option value="${p.id}" ${p.id === c.preset ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-        ${camNum(c, 'width', 'Width', 'px', c.width)}${camNum(c, 'height', 'Height', 'px', c.height)}${camNum(c, 'hfov', 'Horizontal FOV', '°', c.hfov, 0.1)}
-        ${camNum(c, 'rate', 'Frame rate', 'Hz', c.rate)}
-        <label class="field"><span>Mounted on</span><select data-cam="${c.id}" data-ck="mount">${memberOptions(c.mount)}</select></label>
-        <label class="field"><span>Along it</span><input type="range" data-cam="${c.id}" data-ck="along" min="0" max="1" step="0.005" value="${c.along}"><small>${Math.round(c.along * 100)}% from its start</small></label>
-        <label class="field"><span>On its face</span><select data-cam="${c.id}" data-ck="face">${FACES.map(f => `<option value="${f}" ${f === c.face ? 'selected' : ''}>${FACE_NAME[f]}</option>`).join('')}</select></label>
-        ${camNum(c, 'standoff', 'Stand-off', 'mm', c.standoff)}
-        <label class="field"><span>Aim</span><select data-cam="${c.id}" data-ck="aim"><option value="target" ${c.aim === 'target' ? 'selected' : ''}>Look at a point</option><option value="angles" ${c.aim === 'angles' ? 'selected' : ''}>Yaw / pitch / roll</option></select></label>
-        ${c.aim === 'target'
-          ? `<div class="field"><span>Look at</span><span class="xyz">${['x', 'y', 'z'].map((a, i) => `<span class="inp"><input type="number" data-cam="${c.id}" data-ck="target.${i}" value="${c.target[i]}" step="10" aria-label="${a}"><i>${a}</i></span>`).join('')}</span><small>mm from the centre of the worktop surface</small></div>`
-          : `${camNum(c, 'yaw', 'Yaw', '°', c.yaw)}${camNum(c, 'pitch', 'Pitch (down +)', '°', c.pitch)}`}
-        ${camNum(c, 'roll', 'Roll', '°', c.roll)}
-        <div class="cam-act">
-          <button type="button" class="btn sm" data-act="place" data-id="${c.id}">Place on frame</button>
-          <button type="button" class="btn sm" data-act="view" data-id="${c.id}" aria-pressed="${pipCam === c.id}">Show view</button>
-          <button type="button" class="btn sm" data-act="remove" data-id="${c.id}">Remove</button>
-        </div>
-      </div></details>`;
-  }).join('');
-  list.querySelectorAll<HTMLDetailsElement>('details').forEach(d => d.addEventListener('toggle', () => {
-    if (d.open) { openCam = d.dataset.card!; if (pipCam !== openCam) { pipCam = openCam; viewers.forEach(v => v.showCamera(pipCam)); list.querySelectorAll('[data-act=view]').forEach(b => b.setAttribute('aria-pressed', String((b as HTMLElement).dataset.id === pipCam))); } }
-    else if (openCam === d.dataset.card) openCam = null;
-  }));
+function camSet(fn: (c: Params['cameras'][number]) => void) {
+  const c = sel && P.cameras.find(x => `cam_${x.id}` === sel!.id);
+  if (!c) return;
+  fn(c);
+  update(); renderSelected();
 }
 function camInput(el: HTMLInputElement) {
-  const c = P.cameras.find(x => x.id === el.dataset.cam)!, k = el.dataset.ck!;
-  if (k.startsWith('target.')) c.target[Number(k.split('.')[1])] = parseFloat(el.value) || 0;
-  else if (['name', 'mount', 'face', 'aim', 'preset'].includes(k)) (c as any)[k] = el.value;
+  const c = P.cameras.find(x => x.id === el.dataset.cam);
+  if (!c) return;
+  const k = el.dataset.ck!;
+  if (k.startsWith('target.')) { c.target[Number(k.split('.')[1])] = parseFloat(el.value) || 0; c.aim = 'target'; }
+  else if (k === 'name') c.name = el.value.trim() || c.id;
+  else if (k === 'preset') { c.preset = el.value; if (el.value !== 'custom') { const p = cameraPreset(el.value); c.width = p.width; c.height = p.height; c.hfov = p.hfov; } }
   else { const v = parseFloat(el.value); if (!Number.isFinite(v)) return; (c as any)[k] = v; }
-  if (k === 'preset' && el.value !== 'custom') { const p = cameraPreset(el.value); c.width = p.width; c.height = p.height; c.hfov = p.hfov; }
-  if (k === 'aim' && el.value === 'angles') { const pose = M.cameras.find(x => x.spec.id === c.id); if (pose) { c.yaw = Math.round(Math.atan2(pose.f[1], pose.f[0]) * 180 / Math.PI); c.pitch = Math.round(Math.asin(-pose.f[2]) * 180 / Math.PI); } }
-  if (k === 'name') c.name = el.value.trim() || c.id;
-  if (k === 'along') { const sm = el.parentElement!.querySelector('small'); if (sm) sm.textContent = `${Math.round(c.along * 100)}% from its start`; }
-  update(false, ['preset', 'aim', 'mount'].includes(k));
+  if (k === 'along') { el.style.setProperty('--p', `${c.along * 100}%`); const i = el.parentElement!.querySelector('.num i'); if (i) i.textContent = `${Math.round(c.along * 100)}%`; }
+  update();
+  if (k === 'preset') renderSelected();
 }
-function addCamera() {
+function startPlacing(id: string) {
+  const c = P.cameras.find(x => x.id === id);
+  $('#placing-name').textContent = c ? `“${c.name}”` : '';
+  $('#placing').hidden = false;
+  placing = h => {
+    const cam = P.cameras.find(x => x.id === id);
+    if (cam) Object.assign(cam, { mount: h.member, along: h.along, face: h.face });
+    stopPlacing();
+    update();
+    selectPart(`cam_${id}`);
+  };
+  world.placeMode(placing);
+}
+function stopPlacing() { placing = null; world.placeMode(null); $('#placing').hidden = true; }
+$('#placing-cancel').addEventListener('click', stopPlacing);
+function newCamera(place: PlaceHit | null): string {
   let n = P.cameras.length + 1;
   while (P.cameras.some(c => c.id === `cam${n}`)) n++;
-  const pre = CAMERA_PRESETS[0];
-  P.cameras.push({ ...clone(DEFAULTS.cameras[0]), id: `cam${n}`, name: `cam${n}`, preset: pre.id, width: pre.width, height: pre.height, hfov: pre.hfov,
-    mount: 'post_FR', along: 0.85, face: '-y', standoff: 25, aim: 'target', target: [0, 0, 0] });
-  openCam = pipCam = `cam${n}`;
-  update(true, true);
-  camAction('place', `cam${n}`);
+  const pre = CAMERA_PRESETS[0], id = `cam${n}`;
+  P.cameras.push({ ...clone(DEFAULTS.cameras[0]), id, name: id, preset: pre.id, width: pre.width, height: pre.height, hfov: pre.hfov,
+    mount: place?.member ?? 'post_FR', along: place?.along ?? 0.85, face: place?.face ?? '-y', standoff: 25, aim: 'target', target: [0, 0, 0] });
+  pipCam = id;
+  update();
+  return id;
 }
-function camAction(act: string, id: string) {
-  const c = P.cameras.find(x => x.id === id);
-  if (!c) return;
-  if (act === 'remove') { P.cameras = P.cameras.filter(x => x.id !== id); if (pipCam === id) pipCam = P.cameras[0]?.id ?? null; update(true, true); }
-  if (act === 'view') { pipCam = pipCam === id ? null : id; viewers.forEach(v => v.showCamera(pipCam)); renderCams(); }
-  if (act === 'place') {
-    $('#placing-name').textContent = `"${c.name}"`;
-    $('#placing').hidden = false;
-    $('#viewer').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    main.placeMode(hit => {
-      c.mount = hit.member; c.along = hit.along; c.face = hit.face;
-      main.placeMode(null); $('#placing').hidden = true;
-      pipCam = id; openCam = id;
-      update(true, true);
-    });
-  }
-}
-$('#placing-cancel').addEventListener('click', () => { main.placeMode(null); $('#placing').hidden = true; });
+function addCamera() { startPlacing(newCamera(null)); }
 
-// ------------------------------------------------------------------ viewers
-const pick = $('#pick');
-const onPick = (p: PickInfo | null) => {
-  pick.hidden = !p;
-  if (p) pick.innerHTML = `${esc(p.name)}${markOf[p.id] ? ` · <b>${markOf[p.id]}</b>` : ''}<small>${esc(p.spec)}</small>`;
-};
-const main: Viewer = createViewer($('#viewer'), { onPick, pip: true });
-const stepsView: Viewer = createViewer($('#viewer-steps'));
-const viewers = [main, stepsView];
-document.querySelectorAll<HTMLElement>('.cams [data-cam]').forEach(b => b.addEventListener('click', () => main.view(b.dataset.cam!)));
-const colors = () => ({ frame: P.frameColor, panel: P.panelColor, worktop: P.worktopColor, panelOpacity: P.panelOpacity });
-let markOf: Record<string, string> = {};
+function action(a: string, arg?: string) {
+  const c = sel && P.cameras.find(x => `cam_${x.id}` === sel!.id);
+  if (a === 'deselect') selectPart(null);
+  if (a === 'focus' && sel) world.focus(sel.id);
+  if (a === 'mount-here' && sel?.place) selectPart(`cam_${newCamera(sel.place)}`);
+  if (a === 'remove-wall') { P.panels[arg as PanelFace] = false; selectPart(null); update(); }
+  if (a === 'remove-board') { if (arg === 'worktop') P.worktop = false; else P.shelf = false; selectPart(null); update(); }
+  if (a === 'move-cam' && c) startPlacing(c.id);
+  if (a === 'view-cam' && c) { pipCam = c.id; pipOn = true; syncPip(); }
+  if (a === 'remove-cam' && c) { P.cameras = P.cameras.filter(x => x !== c); selectPart(null); update(); }
+}
+
+// ------------------------------------------------------------------ assembly timeline
+let playT = 0;
+function setStep(i: number) {
+  stepIdx = i;
+  world.setStep(i < 0 ? null : M.steps[i].n);
+  renderTimeline();
+}
+function renderTimeline() {
+  const el = document.getElementById('timeline');
+  if (!el) return;
+  const n = M.steps.length, v = stepIdx < 0 ? n : stepIdx, s = stepIdx < 0 ? null : M.steps[stepIdx];
+  const tl = document.getElementById('tl') as HTMLInputElement | null;
+  if (tl && document.activeElement === tl) {   // dragging: only relabel
+    el.querySelector('.tl-n')!.textContent = s ? `${stepIdx + 1}/${n}` : 'Done';
+    el.querySelector('.tl-t')!.textContent = s ? s.title : 'The finished table';
+    tl.style.setProperty('--p', `${(v / n) * 100}%`);
+    return;
+  }
+  el.innerHTML = `<div class="tl-h"><span class="tl-n">${s ? `${stepIdx + 1}/${n}` : 'Done'}</span><span class="tl-t">${s ? esc(s.title) : 'The finished table'}</span><button type="button" class="icon-btn" id="tl-play" aria-label="${playT ? 'Pause' : 'Play the assembly'}">${playT ? '<svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>' : '<svg viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5z" fill="currentColor"/></svg>'}</button></div>
+    <input type="range" id="tl" min="0" max="${n}" step="1" value="${v}" style="--p:${(v / n) * 100}%" aria-label="Assembly step">`;
+  document.getElementById('meta-assembly')!.textContent = `${n} steps`;
+  document.getElementById('tl-play')!.addEventListener('click', () => (playT ? stopPlay() : play()));
+}
+function play() {
+  stopPlay();
+  playT = window.setInterval(() => { if (stepIdx < 0 || stepIdx >= M.steps.length - 1) { stopPlay(); setStep(-1); } else setStep(stepIdx + 1); }, 1300);
+  setStep(0);
+}
+function stopPlay() { if (!playT) return; clearInterval(playT); playT = 0; renderTimeline(); }
+
+// ------------------------------------------------------------------ preview, sidebar
+const pipSel = $<HTMLSelectElement>('#pip-select');
+function syncPip() {
+  if (!P.cameras.some(c => c.id === pipCam)) pipCam = P.cameras[0]?.id ?? null;
+  const on = pipOn && !!pipCam;
+  $('#pip').hidden = !on;
+  const cb = document.getElementById('v-pip') as HTMLInputElement | null;
+  if (cb) cb.checked = pipOn;
+  pipSel.innerHTML = P.cameras.map(c => `<option value="${c.id}" ${c.id === pipCam ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  const pose = M.cameras.find(c => c.spec.id === pipCam);
+  if (pose) $('#pip-view').style.aspectRatio = `${pose.spec.width} / ${pose.spec.height}`;
+  world.showCamera(on ? pipCam : null, $('#pip-view'));
+}
+pipSel.addEventListener('change', () => { pipCam = pipSel.value; syncPip(); });
+$('#pip-close').addEventListener('click', () => { pipOn = false; syncPip(); });
+function showSide(on: boolean) {
+  const was = !$('#side').hidden;
+  $('#side').hidden = !on;
+  $('#open-side').hidden = on;
+  if (was !== on || !inited) world.setInsets(on && window.innerWidth > 700 ? 344 : 0, 0, 0, on && window.innerWidth <= 700 ? window.innerHeight * 0.56 : 0);
+}
+let inited = false;
+$('#collapse').addEventListener('click', () => showSide(false));
+$('#open-side').addEventListener('click', () => showSide(true));
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (placing) stopPlacing(); else if (sel) selectPart(null);
+});
 
 // ------------------------------------------------------------------ update
-let sectionTimer = 0, lastColors = '';
-function update(syncInputs = false, rebuildCams = false) {
+function update() {
   P = normalize(P);
   M = buildModel(P);
   markOf = Object.fromEntries(cutList(M).flatMap(c => c.ids.map(id => [id, c.mark])));
   const h = toHash(P);
   history.replaceState(null, '', h ? `#${h}` : location.pathname + location.search);
-  const cs = JSON.stringify(colors());
-  if (cs !== lastColors) { viewers.forEach(v => v.setColors(colors())); lastColors = cs; }
-  viewers.forEach(v => { v.showCamera(v === main ? pipCam : null); v.setModel(M, colors()); });
-  if (syncInputs) syncForm(); else syncVisibility();
-  if (rebuildCams) renderCams();
-  else for (const c of P.cameras) {   // refresh the summary line and mount list without losing focus
-    const card = document.querySelector(`[data-card="${c.id}"] summary small`), pose = M.cameras.find(x => x.spec.id === c.id);
-    if (card && pose) card.textContent = `${c.width}×${c.height} · ${pose.hfov.toFixed(0)}°`;
-    const sel = document.querySelector<HTMLSelectElement>(`[data-cam="${c.id}"][data-ck="mount"]`);
-    if (sel && sel !== document.activeElement && sel.options.length !== M.parts.filter(p => p.member).length) sel.innerHTML = memberOptions(c.mount);
-  }
-  $('#title').textContent = `Robot test table, ${round(P.width)} × ${round(P.depth)} × ${round(M.topZ)} mm`;
-  clearTimeout(sectionTimer);
-  sectionTimer = window.setTimeout(renderSections, 120);
-}
-
-// ------------------------------------------------------------------ sections
-function renderSections() {
-  const cks = checks(M), bad = cks.filter(c => !c.ok);
-  const icon = (c: { ok: boolean; level: string }) => c.ok ? '✓' : c.level === 'error' ? '✗' : c.level === 'info' ? 'i' : '!';
-  $('#checks-body').innerHTML = `<ul class="checks">${cks.map(c => `<li class="${c.ok ? 'ok' : c.level}"><span class="ic" aria-hidden="true">${icon(c)}</span><span>${esc(c.text)}</span></li>`).join('')}</ul>`;
-  $('#toc-checks').textContent = bad.length ? `${bad.length} to look at` : 'all pass';
-
-  const lines = bom(M);
-  const groups = [...new Set(lines.map(l => l.group))];
-  $('#bom-body').innerHTML = `<table class="doc"><thead><tr><th>Item</th><th>Spec</th><th class="n">Qty</th><th>Note</th></tr></thead><tbody>${groups.map(g => `<tr class="grp"><td colspan="4">${esc(g)}</td></tr>` + lines.filter(l => l.group === g).map(l => `<tr><td>${esc(l.item)}</td><td>${esc(l.spec)}</td><td class="n">${l.qty} ${esc(l.unit)}</td><td>${esc(l.note || '')}</td></tr>`).join('')).join('')}</tbody></table>`;
-  const cuts = cutList(M), metres = cuts.reduce((a, c) => a + c.length * c.qty, 0) / 1000;
-  $('#totals').textContent = `${round(metres)} m of ${M.prof.id} · ${cuts.reduce((a, c) => a + c.qty, 0)} pieces · about ${round(M.mass)} kg`;
-  $('#toc-bom').textContent = `${lines.length} lines`;
-
-  let cut = `<table class="doc"><thead><tr><th>Mark</th><th class="n">Length</th><th class="n">Qty</th><th>Parts</th><th>Machining</th></tr></thead><tbody>${cuts.map(c => `<tr><td class="mark">${c.mark}</td><td class="n">${c.length} mm</td><td class="n">${c.qty}</td><td>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}</td><td>${esc(c.taps)}</td></tr>`).join('')}</tbody></table>`;
-  if (P.stockLength) {
-    const { bars, tooLong } = nest(M);
-    cut += `<h3>From ${P.stockLength} mm bars</h3><p class="totals">${bars.length} bars, kerf ${P.kerf} mm${tooLong.length ? ` · ${tooLong.join(', ')} too long for the stock` : ''}</p><div class="bars">${bars.map(b => `<div class="bar">${b.cuts.map(c => `<span style="width:${(c.length / P.stockLength) * 100}%">${c.mark} ${c.length}</span>`).join('')}<span class="waste" style="flex:1">${b.waste > 40 ? b.waste : ''}</span></div>`).join('')}</div>`;
-  }
-  $('#cut-body').innerHTML = cut;
-  $('#toc-cut').textContent = `${cuts.length} lengths`;
-
-  const d = drawingsSvg(M);
-  $('#drawings-body').innerHTML = `<figure class="v-top">${d.top}</figure><figure>${d.front}</figure><figure>${d.side}</figure>`;
-
-  $('#cams-body').innerHTML = M.cameras.length ? `<table class="doc"><thead><tr><th>Camera</th><th>Image</th><th>Intrinsics</th><th>Position (mm)</th><th>Looking</th><th>Mount</th></tr></thead><tbody>${M.cameras.map(c => `<tr>
-    <td><b>${esc(c.spec.name)}</b><small>${esc(cameraPreset(c.spec.preset).name)}</small></td>
-    <td>${c.spec.width}×${c.spec.height}<small>${c.hfov.toFixed(1)}° × ${c.vfov.toFixed(1)}° @ ${c.spec.rate} Hz</small></td>
-    <td>fx = fy = ${c.fx.toFixed(1)}<small>cx ${c.cx}, cy ${c.cy}</small></td>
-    <td>${c.pos.map(v => Math.round(v)).join(', ')}<small>worktop at z ${round(M.worktopZ)}</small></td>
-    <td>${c.f.map(v => v.toFixed(2)).join(', ')}<small>forward unit vector</small></td>
-    <td>${esc(M.parts.find(p => p.id === c.spec.mount)?.name || c.spec.mount)}<small>${Math.round(c.spec.along * 100)}% along, ${FACE_NAME[c.spec.face]}, ${c.spec.standoff} mm off</small></td></tr>`).join('')}</tbody></table>
-    <p>Every export carries these cameras: URDF links <code>&lt;name&gt;_camera_link</code> (x forward) and <code>&lt;name&gt;_camera_optical_frame</code> (z forward) with a Gazebo sensor, MuJoCo <code>&lt;camera&gt;</code> with <code>fovy</code> and <code>resolution</code>, USD <code>Camera</code> prims, glTF cameras, and <code>cameras.json</code> with K and the pose in ROS, OpenCV and OpenGL conventions.</p>`
-    : '<p>No cameras. Add one in the form.</p>';
-  $('#toc-cams').textContent = `${M.cameras.length} camera${M.cameras.length === 1 ? '' : 's'}`;
-
-  const z = (M.worktopZ / 1000).toFixed(3);
-  $('#sim-body').innerHTML = `<p>The table is one static body. Its origin is on the floor under the table centre, z up, x across the width, y toward the back. Mount your robot at <code>worktop_frame</code>, the centre of the worktop surface, z = ${z} m. Colliders are boxes (one per extrusion, board and foot); visuals are the real T-slot profile.</p>
-  <div class="sim-grid">
-    <div class="sim-card"><h3>MuJoCo</h3><p>Load <code>mjcf/scene.xml</code>. Cameras render at their resolution.</p><pre class="code">python -m mujoco.viewer --mjcf=mjcf/scene.xml</pre><pre class="code">&lt;!-- your robot on the worktop --&gt;
-&lt;body name="robot_base" pos="0 0 ${z}"&gt;...&lt;/body&gt;</pre></div>
-    <div class="sim-card"><h3>URDF (ROS, Isaac, PyBullet, Gazebo)</h3><p><code>urdf/frame.urdf</code> with its <code>meshes/</code>. Fix your arm to the worktop:</p><pre class="code">&lt;joint name="table_to_robot" type="fixed"&gt;
-  &lt;parent link="worktop_frame"/&gt;
-  &lt;child link="robot_base_link"/&gt;
-&lt;/joint&gt;</pre></div>
-    <div class="sim-card"><h3>OpenUSD (Isaac Sim, Omniverse)</h3><p><code>usd/frame.usda</code>: z up, metres, PBR materials, static colliders with <code>PhysicsCollisionAPI</code>, cameras. Self-contained.</p><pre class="code">usdview usd/frame.usda</pre></div>
-    <div class="sim-card"><h3>glTF (Blender, web)</h3><p><code>frame.glb</code>: y up, metres, colours, cameras as glTF cameras. Good for renders and three.js.</p></div>
-  </div>`;
-
-  renderSteps();
-}
-
-function renderSteps() {
-  const key = `table-generator:ticks`, ticks = store.get<Record<string, boolean>>(key, {});
-  $('#steps-body').innerHTML = M.steps.map(s => {
-    const parts = M.parts.filter(p => p.step === s.n && p.kind !== 'hardware');
-    const hw = M.parts.filter(p => p.step === s.n && p.kind === 'hardware').length;
-    const byMark: Record<string, number> = {};
-    for (const p of parts) { const k = markOf[p.id] ? `${markOf[p.id]} · ${p.name.split(',')[0]}` : p.name; byMark[k] = (byMark[k] || 0) + 1; }
-    const list = Object.entries(byMark).map(([k, n]) => `<b>${esc(k)}</b>${n > 1 ? ` ×${n}` : ''}`).join(', ');
-    return `<article class="step" data-step="${s.n}" id="step-${s.n}">
-      <div class="step-h"><div class="sn">${s.n}</div><div><h3>${esc(s.title)}</h3><p>Step ${s.n} of ${M.steps.length}</p></div></div>
-      <ol class="tasks">${s.tasks.map((t, i) => { const id = `t-${s.n}-${i}`; return `<li><input type="checkbox" id="${id}" data-tick="${id}" ${ticks[id] ? 'checked' : ''}><label for="${id}">${esc(t)}</label></li>`; }).join('')}</ol>
-      ${s.warn ? `<p class="note"><span class="ic" aria-hidden="true">!</span><span>${esc(s.warn)}</span></p>` : ''}
-      ${s.check ? `<p class="gate"><span class="ic" aria-hidden="true">✓</span><span>${esc(s.check)}</span></p>` : ''}
-      ${list ? `<p class="parts">New in this step: ${list}${hw ? `, ${hw} brackets/hardware` : ''}</p>` : ''}
-    </article>`;
-  }).join('');
-  $('#steps-body').querySelectorAll<HTMLInputElement>('[data-tick]').forEach(cb => cb.addEventListener('change', () => { ticks[cb.dataset.tick!] = cb.checked; store.set(key, ticks); }));
-  $('#toc-steps').textContent = `${M.steps.length} steps`;
-  watchSteps();
-}
-
-let stepObs: IntersectionObserver | null = null;
-const seen = new Map<number, number>();
-function watchSteps() {
-  stepObs?.disconnect();
-  seen.clear();
-  stepObs = new IntersectionObserver(es => {
-    for (const e of es) seen.set(Number((e.target as HTMLElement).dataset.step), e.intersectionRatio);
-    const best = [...seen.entries()].sort((a, b) => b[1] - a[1])[0];
-    if (best && best[1] > 0) showStep(best[0]);
-  }, { threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '-15% 0px -35% 0px' });
-  document.querySelectorAll('.step').forEach(s => stepObs!.observe(s));
-  showStep(curStep && M.steps.some(s => s.n === curStep) ? curStep : M.steps[0].n);
-}
-let curStep = 0;
-function showStep(n: number) {
-  curStep = n;
-  const s = M.steps.find(x => x.n === n)!;
-  const last = Math.max(...M.steps.map(x => x.n));
-  stepsView.setStep(n === last ? null : n, M.parts.some(p => p.step === n) ? n : null);
-  $('#step-3d-cap').textContent = `Step ${n}: ${s.title}`;
+  world.setModel(M);
+  if (stepIdx >= M.steps.length) stepIdx = -1;
+  world.setStep(stepIdx < 0 ? null : M.steps[stepIdx].n);
+  syncAll();
+  renderDynamic();
+  syncPip();
+  if (sel && !M.parts.some(p => p.id === sel!.id)) selectPart(null);
+  else if (sel) { const pt = M.parts.find(p => p.id === sel!.id)!; const sp = $('#selected .spec'); if (sp) sp.textContent = pt.spec; const ch = $<HTMLElement>('#selected .chip'); if (ch) ch.style.background = colorOf(pt); }
 }
 
 // ------------------------------------------------------------------ downloads
@@ -365,37 +386,39 @@ async function zip(files: Files, name: string) {
   save(await z.generateAsync({ type: 'blob', compression: 'DEFLATE' }), name, 'application/zip');
 }
 const subset = (files: Files, pre: string) => Object.fromEntries(Object.entries(files).filter(([k]) => k.startsWith(pre)));
-$('#dl-zip').addEventListener('click', async () => {
-  toast('Building the zip…');
-  const files = bundle(M, location.href);
-  files['frame.glb'] = await glb(M);
-  files['preview.png'] = await (await fetch(main.picture())).arrayBuffer();
-  await zip(files, `${baseName()}.zip`);
-  toast('Downloaded');
-});
-document.querySelectorAll<HTMLElement>('[data-dl]').forEach(b => b.addEventListener('click', async () => {
+$$('[data-dl]').forEach(b => b.addEventListener('click', async () => {
   const k = b.dataset.dl!, n = baseName();
+  $<HTMLDetailsElement>('details.more').open = false;
+  if (k === 'zip') {
+    toast('Preparing the download');
+    const files = bundle(M, location.href);
+    files['frame.glb'] = await glb(M);
+    files['preview.png'] = await (await fetch(world.picture())).arrayBuffer();
+    return zip(files, `${n}.zip`);
+  }
   if (k === 'urdf') return zip(subset(bundle(M), 'urdf/'), `${n}_urdf.zip`);
   if (k === 'mjcf') return zip(subset(bundle(M), 'mjcf/'), `${n}_mjcf.zip`);
   if (k === 'usd') return save(bundle(M)['usd/frame.usda'] as string, `${n}.usda`, 'text/plain');
   if (k === 'glb') return save(await glb(M), `${n}.glb`, 'model/gltf-binary');
-  if (k === 'bom') return save(bomCsv(M), `${n}_bom.csv`, 'text/csv');
+  if (k === 'bom') return save(bomCsv(M), `${n}_parts.csv`, 'text/csv');
   if (k === 'cams') return save(JSON.stringify(cameraJson(M), null, 2), `${n}_cameras.json`, 'application/json');
-  if (k === 'md') return save(readme(M, location.href), `${n}_build_plan.md`, 'text/markdown');
+  if (k === 'png') return save(await (await fetch(world.picture())).blob(), `${n}.png`, 'image/png');
 }));
-$('#copy-link').addEventListener('click', async () => { try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast('Copy the address bar to share'); } });
-$('#reset').addEventListener('click', () => { P = normalize({}); pipCam = P.cameras[0]?.id ?? null; renderForm(); update(true, true); });
+$('#share').addEventListener('click', async () => { try { await navigator.clipboard.writeText(location.href); toast('Link copied'); } catch { toast('Copy the address bar to share'); } });
+$('#reset').addEventListener('click', () => { P = normalize({}); selectPart(null); stopPlay(); setStep(-1); renderSide(); update(); world.view('iso'); });
 $<HTMLInputElement>('#load').addEventListener('change', async e => {
   const file = (e.target as HTMLInputElement).files?.[0];
   if (!file) return;
-  try { P = normalize(JSON.parse(await file.text())); pipCam = P.cameras[0]?.id ?? null; renderForm(); update(true, true); toast(`Loaded ${file.name}`); }
-  catch { toast('That file is not a params.json'); }
+  try { P = normalize(JSON.parse(await file.text())); selectPart(null); renderSide(); update(); toast(`Loaded ${file.name}`); } catch { toast('That file is not a params.json'); }
 });
 let toastT = 0;
 function toast(t: string) { const el = $('#toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = window.setTimeout(() => (el.hidden = true), 2200); }
-window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h !== toHash(P)) { P = fromHash(h); renderForm(); update(true, true); } });
+window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h !== toHash(P)) { P = fromHash(h); renderSide(); update(); } });
 
 // ------------------------------------------------------------------ go
-renderForm();
-update(true, true);
-renderSections();
+markOf = Object.fromEntries(cutList(M).flatMap(c => c.ids.map(id => [id, c.mark])));
+renderSide();
+update();
+showSide(window.innerWidth > 700);
+inited = true;
+world.view('iso');

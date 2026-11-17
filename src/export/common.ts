@@ -17,7 +17,7 @@ export function looks(m: Model): Record<Part['role'], Look> {
     frame: { name: 'aluminium_frame', rgba: hexRgba(p.frameColor), metallic: 0.8, roughness: 0.35 },
     panel: { name: 'wall_panel', rgba: hexRgba(p.panelColor, p.panelOpacity), metallic: 0, roughness: 0.9 },
     worktop: { name: 'worktop', rgba: hexRgba(p.worktopColor), metallic: 0, roughness: 0.8 },
-    shelf: { name: 'shelf', rgba: hexRgba(p.worktopColor), metallic: 0, roughness: 0.8 },
+    shelf: { name: 'shelf', rgba: hexRgba(p.shelfColor), metallic: 0, roughness: 0.8 },
     hw: { name: 'steel', rgba: hexRgba('#8d9096'), metallic: 0.9, roughness: 0.4 },
     dark: { name: 'black_plastic', rgba: hexRgba('#2a2a2d'), metallic: 0, roughness: 0.7 },
     cam: { name: 'camera_body', rgba: hexRgba('#1d232c'), metallic: 0.2, roughness: 0.5 },

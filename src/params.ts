@@ -54,6 +54,7 @@ export interface Params {
   frameColor: string;
   panelColor: string;
   worktopColor: string;
+  shelfColor: string;
   panelOpacity: number;
   cameras: CameraSpec[];
 }
@@ -73,6 +74,7 @@ export const PROFILES: Record<ProfileId, ProfileSpec> = {
 export interface MaterialSpec { id: string; name: string; density: number; thk: number; color: string; opacity?: number; cnc: boolean }
 // density in kg/m³
 export const MATERIALS: MaterialSpec[] = [
+  { id: 'melamine', name: 'White melamine board', density: 680, thk: 18, color: '#f3f3f1', cnc: true },
   { id: 'hpl', name: 'HPL / mica laminate', density: 1400, thk: 3, color: '#f4f4f1', cnc: true },
   { id: 'acm', name: 'Aluminium composite (ACM)', density: 1270, thk: 3, color: '#eeeeee', cnc: true },
   { id: 'acrylic', name: 'Clear acrylic', density: 1190, thk: 3, color: '#cfe3ee', opacity: 0.35, cnc: true },
@@ -106,10 +108,10 @@ export const DEFAULTS: Params = {
   overheadBar: true, overheadBarY: 0,
   panels: { back: true, left: true, right: true, front: false, roof: false },
   panelMaterial: 'hpl', panelThk: 3,
-  worktop: true, worktopMaterial: 'plywood', worktopThk: 18,
-  shelfMaterial: 'plywood', shelfThk: 12,
+  worktop: true, worktopMaterial: 'melamine', worktopThk: 18,
+  shelfMaterial: 'melamine', shelfThk: 18,
   stockLength: 0, kerf: 3,
-  frameColor: '#c4c7cb', panelColor: '#f4f4f1', worktopColor: '#d9b98c', panelOpacity: 1,
+  frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#f3f3f1', shelfColor: '#f3f3f1', panelOpacity: 1,
   cameras: [
     { id: 'overhead', name: 'overhead', preset: 'usb-1080', width: 1920, height: 1080, hfov: 70.4, near: 20, far: 5000, rate: 30,
       mount: 'bar_overhead', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 0, 0], yaw: 0, pitch: 90, roll: 0 },
