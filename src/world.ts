@@ -17,7 +17,7 @@ import { createMaterials, worldUV, onTextureLoad } from './surfaces.ts';
 export interface PlaceHit { member: string; along: number; face: Face }
 export interface Hit { part: Part; place: PlaceHit | null; screen: [number, number] }
 
-const ACCENT = 0xffffff, CAM = 0xffffff;
+const ACCENT = 0xffffff;
 
 export { backdrop } from './studio.ts';
 
@@ -113,19 +113,25 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     apply();
   }
 
+  // each camera's view as a pyramid: ink-blue edges and a faint blue fill, so it reads
+  // against the white walls and the blue backdrop alike
+  const frustumEdge = (on: boolean) => new THREE.LineBasicMaterial({ color: 0x0b2a8f, transparent: true, opacity: on ? 0.95 : 0.6, depthTest: true });
+  const frustumFill = (on: boolean) => new THREE.MeshBasicMaterial({ color: 0x2f6bff, transparent: true, opacity: on ? 0.09 : 0.05, side: THREE.DoubleSide, depthWrite: false });
   function buildFrusta(m: Model) {
-    frusta.children.forEach(c => (c as THREE.LineSegments).geometry.dispose());
+    frusta.traverse(o => { const x = o as THREE.Mesh; x.geometry?.dispose(); (x.material as THREE.Material)?.dispose?.(); });
     frusta.clear();
     for (const c of m.cameras) {
       const d = 220, tx = Math.tan((c.hfov * Math.PI) / 360) * d, ty = Math.tan((c.vfov * Math.PI) / 360) * d;
       const o = new THREE.Vector3(...c.pos);
       const P = (a: number, b: number) => o.clone().add(new THREE.Vector3(...c.f).multiplyScalar(d)).add(new THREE.Vector3(...c.l).multiplyScalar(a)).add(new THREE.Vector3(...c.u).multiplyScalar(b));
       const k = [P(tx, ty), P(-tx, ty), P(-tx, -ty), P(tx, -ty)];
-      const pts = [o, k[0], o, k[1], o, k[2], o, k[3], k[0], k[1], k[1], k[2], k[2], k[3], k[3], k[0]];
-      const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: CAM, transparent: true, opacity: 0.55 }));
-      line.layers.set(2);
-      line.userData.cam = c.spec.id;
-      frusta.add(line);
+      const g = new THREE.Group();
+      g.userData.cam = c.spec.id;
+      const on = c.spec.id === pipCam;
+      const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([o, k[0], o, k[1], o, k[2], o, k[3], k[0], k[1], k[1], k[2], k[2], k[3], k[3], k[0]]), frustumEdge(on));
+      const fill = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([o, k[0], k[1], o, k[1], k[2], o, k[2], k[3], o, k[3], k[0]]), frustumFill(on));
+      for (const x of [line, fill]) { x.layers.set(2); g.add(x); }
+      frusta.add(g);
     }
   }
 
@@ -144,7 +150,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
       e.home.set(dir.x * 0.45, dir.y * 0.6, dir.z * 0.35 + (e.part.kind === 'panel' ? 60 : 0));
     }
     frusta.visible = step == null || step >= 8;
-    frusta.children.forEach(l => (((l as THREE.LineSegments).material as THREE.LineBasicMaterial).opacity = l.userData.cam === pipCam ? 0.95 : 0.35));
+    frusta.children.forEach(g => { const on = g.userData.cam === pipCam; const [l, f] = g.children as THREE.Mesh[]; (l.material as THREE.Material).opacity = on ? 0.95 : 0.6; (f.material as THREE.Material).opacity = on ? 0.09 : 0.05; });
     const meshesOf = (id: string | null) => (id ? entries.filter(e => e.part.id === id && e.mesh.visible).map(e => e.mesh) : []);
     selPass.selectedObjects = meshesOf(selected);
     hovPass.selectedObjects = hovered && hovered !== selected ? meshesOf(hovered) : [];

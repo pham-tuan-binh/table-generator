@@ -29,7 +29,7 @@ type Opt = [string | number, string];
 interface F { key: keyof Params; label: string; type: 'num' | 'seg' | 'select' | 'bool' | 'color' | 'range'; unit?: string; options?: Opt[]; show?: (p: Params) => boolean; swatches?: string[] }
 const FRAME_SW = ['#eef0f2', '#d4d7db', '#9a9fa6', '#4b5058', '#232427'];
 const PANEL_SW = ['#f4f4f2', '#dfe2e6', '#b9bec6', '#cfe3ee', '#2b2c30'];
-const BOARD_SW = ['#2f3a52', '#3d4a66', '#a9aeb5', '#f3f3f1', '#d9b98c'];
+const BOARD_SW = ['#d9b98c', '#2f3a52', '#3d4a66', '#a9aeb5', '#f3f3f1'];
 const MAT_OPTS: Opt[] = MATERIALS.map(m => [m.id, m.name]);
 const FIELDS: Record<string, F> = Object.fromEntries(([
   { key: 'width', label: 'Width', type: 'num', unit: 'mm' },

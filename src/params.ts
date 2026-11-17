@@ -114,10 +114,10 @@ export const DEFAULTS: Params = {
   overheadBar: true, overheadBarY: 0,
   panels: { back: true, left: true, right: true, front: false, roof: false },
   panelMaterial: 'hpl', panelThk: 3,
-  worktop: true, worktopMaterial: 'phenolic', worktopThk: 12,
-  shelfLikeWorktop: true, shelfMaterial: 'phenolic', shelfThk: 12,
+  worktop: true, worktopMaterial: 'plywood', worktopThk: 18,
+  shelfLikeWorktop: true, shelfMaterial: 'plywood', shelfThk: 18,
   stockLength: 0, kerf: 3,
-  frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#2f3a52', shelfColor: '#2f3a52', panelOpacity: 1,
+  frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#d9b98c', shelfColor: '#d9b98c', panelOpacity: 1,
   cameras: [
     { id: 'overhead', name: 'overhead', preset: 'usb-1080', width: 1920, height: 1080, hfov: 70.4, near: 20, far: 5000, rate: 30,
       mount: 'bar_overhead', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 0, 0], yaw: 0, pitch: 90, roll: 0 },
