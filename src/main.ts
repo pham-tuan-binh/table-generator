@@ -84,7 +84,7 @@ function renderSide() {
   const k = (...keys: (keyof Params)[]) => keys.map(x => field(x)).join('');
   $('#form').innerHTML = [
     sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
-    sec('size', 'Size and load', k('width', 'depth', 'tableHeight', 'boxHeight', 'load') + `<p class="note" id="sizing"></p>`),
+    sec('size', 'Size and load', k('width', 'depth', 'tableHeight', 'boxHeight', 'load')),
     sec('structure', 'Structure', k('shelf', 'shelfLoad', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
     sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfLikeWorktop', 'shelfMaterial', 'shelfThk')),
     sec('colours', 'Colours', k('frameColor', 'panelColor', 'worktopColor', 'shelfColor', 'panelOpacity')),
@@ -120,9 +120,6 @@ function renderDynamic() {
     ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
     <p class="sub">How it goes together</p><div class="steps-txt">${joins(M).map(j => `<p>${esc(j)}</p>`).join('')}</div>
     <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
-  const z = M.sizing;
-  $('#sizing').textContent = `Legs ${z.legs}, worktop rails ${z.rails}${z.supports ? ` with ${z.supports} support${z.supports > 1 ? 's' : ''}` : ''}${P.lowerRing !== 'none' ? `, ${P.shelf ? 'shelf' : 'lower'} rails ${z.lower}` : ''}, box ${z.box}. `
-    + `Under ${P.load} kg the rails sag ${z.sag.toFixed(1)} mm and the worktop moves ${z.sway.toFixed(1)} mm when an arm pushes.`;
   // checks only show up when something needs attention
   const bad = checks(M).filter(c => !c.ok && c.level !== 'info');
   $('#checks').innerHTML = bad.map(c => `<div class="ck ${c.level}">${esc(c.text)}</div>`).join('');
@@ -328,19 +325,18 @@ function play() {
 function stopPlay() { if (!playT) return; clearInterval(playT); playT = 0; renderTimeline(); }
 
 // ------------------------------------------------------------------ preview, sidebar
-const pipSel = $<HTMLSelectElement>('#pip-select');
 function syncPip() {
   if (!P.cameras.some(c => c.id === pipCam)) pipCam = P.cameras[0]?.id ?? null;
   const on = pipOn && !!pipCam;
   $('#pip').hidden = !on;
   const cb = document.getElementById('v-pip') as HTMLInputElement | null;
   if (cb) cb.checked = pipOn;
-  pipSel.innerHTML = P.cameras.map(c => `<option value="${c.id}" ${c.id === pipCam ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  $('#pip-tabs').innerHTML = P.cameras.map(c => `<button type="button" role="tab" data-pipcam="${c.id}" aria-selected="${c.id === pipCam}">${esc(c.name)}</button>`).join('');
   const pose = M.cameras.find(c => c.spec.id === pipCam);
   if (pose) $('#pip-view').style.aspectRatio = `${pose.spec.width} / ${pose.spec.height}`;
   world.showCamera(on ? pipCam : null, $('#pip-view'));
 }
-pipSel.addEventListener('change', () => { pipCam = pipSel.value; syncPip(); });
+$('#pip-tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-pipcam]'); if (b) { pipCam = b.dataset.pipcam!; syncPip(); } });
 $('#pip-close').addEventListener('click', () => { pipOn = false; syncPip(); });
 function showSide(on: boolean) {
   const was = !$('#side').hidden;
