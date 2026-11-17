@@ -91,6 +91,7 @@ function renderSide() {
     sec('assembly', 'Assembly', `<div class="timeline" id="timeline"></div>`),
     sec('parts', 'Parts list', `<div id="parts"></div>${k('stockLength', 'kerf')}`),
     sec('view', 'View', `<div class="seg" role="group" aria-label="View">${[['iso', '3/4'], ['front', 'Front'], ['side', 'Side'], ['top', 'Top']].map(([v, l]) => `<button type="button" data-view="${v}">${l}</button>`).join('')}</div>
+      <label class="switch"><span>Realistic materials</span><input type="checkbox" id="v-real" ${store.get('tg:real', true) ? 'checked' : ''}></label>
       <label class="switch"><span>See through walls</span><input type="checkbox" id="v-xray"></label>
       <label class="switch"><span>Exploded</span><input type="checkbox" id="v-explode"></label>
       <label class="switch"><span>Camera preview</span><input type="checkbox" id="v-pip" ${pipOn ? 'checked' : ''}></label>`),
@@ -100,6 +101,7 @@ function renderSide() {
     if (d.dataset.sec === 'assembly' && !d.open) { stopPlay(); setStep(-1); }
   }));
   $('#v-xray').addEventListener('change', e => world.setXray((e.target as HTMLInputElement).checked));
+  $('#v-real').addEventListener('change', e => { const on = (e.target as HTMLInputElement).checked; store.set('tg:real', on); world.setRealistic(on); });
   $('#v-explode').addEventListener('change', e => world.setExplode((e.target as HTMLInputElement).checked));
   $('#v-pip').addEventListener('change', e => { pipOn = (e.target as HTMLInputElement).checked; syncPip(); });
   renderDynamic();
@@ -417,6 +419,7 @@ window.addEventListener('hashchange', () => { const h = location.hash.slice(1); 
 // ------------------------------------------------------------------ go
 markOf = Object.fromEntries(cutList(M).flatMap(c => c.ids.map(id => [id, c.mark])));
 renderSide();
+world.setRealistic(store.get('tg:real', true));
 update();
 showSide(window.innerWidth > 700);
 inited = true;

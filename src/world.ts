@@ -10,7 +10,8 @@ import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Model, Part, V3 } from './model.ts';
 import { partGeometries } from './geometry.ts';
-import { Face, material } from './params.ts';
+import { Face } from './params.ts';
+import { createMaterials, worldUV, onTextureLoad } from './surfaces.ts';
 
 export interface PlaceHit { member: string; along: number; face: Face }
 export interface Hit { part: Part; place: PlaceHit | null; screen: [number, number] }
@@ -98,7 +99,8 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   interface Entry { mesh: THREE.Mesh; part: Part; home: THREE.Vector3; centre: THREE.Vector3 }
   let entries: Entry[] = [], model: Model | null = null;
   let mats: Record<string, THREE.Material> = {}, buildMats: Record<string, THREE.Material> = {};
-  let xray = false;
+  let xray = false, realistic = true;
+  onTextureLoad(() => { dirty = true; });
   const ghost = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide });
   let step: number | null = null, explode = 0, explodeTo = 0, selected: string | null = null, hovered: string | null = null, pipCam: string | null = null;
   let placing: ((h: PlaceHit) => void) | null = null;
@@ -107,16 +109,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
 
   function makeMaterials(m: Model) {
     Object.values(mats).concat(Object.values(buildMats)).forEach(x => x.dispose());
-    const p = m.p, wallMat = material(p.panelMaterial), see = p.panelOpacity < 1;
-    mats = {
-      frame: new THREE.MeshStandardMaterial({ color: p.frameColor, metalness: 0.62, roughness: 0.34 }),
-      panel: new THREE.MeshPhysicalMaterial({ color: p.panelColor, metalness: 0, roughness: wallMat.opacity ? 0.08 : 0.55, clearcoat: wallMat.opacity ? 0.6 : 0.15, transparent: see, opacity: p.panelOpacity, side: THREE.DoubleSide, depthWrite: !see }),
-      worktop: new THREE.MeshPhysicalMaterial({ color: p.worktopColor, roughness: 0.5, clearcoat: 0.25, clearcoatRoughness: 0.4 }),
-      shelf: new THREE.MeshPhysicalMaterial({ color: p.shelfColor, roughness: 0.55, clearcoat: 0.15 }),
-      hw: new THREE.MeshStandardMaterial({ color: 0x9a9ea5, metalness: 0.85, roughness: 0.3 }),
-      dark: new THREE.MeshStandardMaterial({ color: 0x2a2b2f, metalness: 0.1, roughness: 0.75 }),
-      cam: new THREE.MeshStandardMaterial({ color: 0x1c2230, metalness: 0.3, roughness: 0.45 }),
-    };
+    mats = createMaterials(m.p, realistic);
     // during assembly the earlier steps fade back; the current step stays solid
     buildMats = Object.fromEntries(Object.entries(mats).map(([k, mt]) => {
       const c = mt.clone() as THREE.MeshStandardMaterial;
@@ -133,6 +126,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     entries = [];
     for (const part of m.parts) for (const g of partGeometries(part, m, true)) {
       g.computeVertexNormals();
+      worldUV(g, part);
       g.computeBoundingBox();
       const mesh = new THREE.Mesh(g, mats[part.role]);
       mesh.castShadow = part.role !== 'panel' || m.p.panelOpacity > 0.6;
@@ -358,6 +352,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     },
     picture(): string { composer.render(); return renderer.domElement.toDataURL('image/png'); },
     setXray(on: boolean) { xray = on; apply(); },
+    setRealistic(on: boolean) { realistic = on; if (model) setModel(model); },
     setInsets(l: number, r: number, t = 0, b = 0) {
       if (inset.l === l && inset.r === r && inset.t === t && inset.b === b) return;
       Object.assign(inset, { l, r, t, b });

@@ -79,6 +79,7 @@ export interface MaterialSpec { id: string; name: string; density: number; thk: 
 export const MATERIALS: MaterialSpec[] = [
   { id: 'phenolic', name: 'Slate phenolic worktop', density: 1400, thk: 12, color: '#2f3a52', cnc: true },
   { id: 'melamine', name: 'White melamine board', density: 680, thk: 18, color: '#f3f3f1', cnc: true },
+  { id: 'foam', name: 'PVC foam board', density: 550, thk: 5, color: '#f7f7f5', cnc: true },
   { id: 'hpl', name: 'HPL / mica laminate', density: 1400, thk: 3, color: '#f4f4f1', cnc: true },
   { id: 'acm', name: 'Aluminium composite (ACM)', density: 1270, thk: 3, color: '#eeeeee', cnc: true },
   { id: 'acrylic', name: 'Clear acrylic', density: 1190, thk: 3, color: '#cfe3ee', opacity: 0.35, cnc: true },
