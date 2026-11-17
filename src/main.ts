@@ -68,7 +68,7 @@ function field(key: keyof Params, label?: string): string {
   if (f.type === 'bool') return row(`<label class="switch"><span>${lab}</span><input type="checkbox" data-k="${key}" ${v ? 'checked' : ''}></label>`);
   if (f.type === 'seg') return row(`<div class="row-h"><span class="l">${lab}</span></div><div class="seg" role="group" aria-label="${lab}">${f.options!.map(([o, l]) => `<button type="button" data-k="${key}" data-v="${o}" aria-pressed="${String(o) === String(v)}">${esc(l)}</button>`).join('')}</div>`);
   if (f.type === 'select') return row(`<div class="row-h"><span class="l">${lab}</span></div><select class="sel" data-k="${key}" aria-label="${lab}">${f.options!.map(([o, l]) => `<option value="${o}" ${String(o) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`);
-  if (f.type === 'color') return row(`<div class="row-h"><span class="l">${lab}</span><span class="num"><i data-hex="${key}">${esc(v)}</i></span></div><div class="swatches">${f.swatches!.map(c => `<button type="button" class="sw" style="background:${c}" data-k="${key}" data-v="${c}" aria-pressed="${c === v}" aria-label="${c}"></button>`).join('')}<label class="sw custom" title="Custom colour"><input type="color" data-k="${key}" value="${esc(v)}" aria-label="Custom ${lab} colour"></label></div>`);
+  if (f.type === 'color') return row(`<div class="row-h"><span class="l">${lab}</span></div><div class="swatches">${f.swatches!.map(c => `<button type="button" class="sw" style="background:${c}" data-k="${key}" data-v="${c}" aria-pressed="${c === v}" aria-label="${c}"></button>`).join('')}<label class="sw custom" title="Custom colour"><input type="color" data-k="${key}" value="${esc(v)}" aria-label="Custom ${lab} colour"></label></div>`);
   const l = LIM[key]!;
   if (f.type === 'range') return row(`<div class="row-h"><span class="l">${lab}</span><span class="num"><i data-out="${key}">${Math.round(Number(v) * 100)}%</i></span></div><input type="range" data-k="${key}" min="${l.min}" max="${l.max}" step="${l.step}" value="${v}" style="--p:${pct(key, Number(v))}" aria-label="${lab}">`);
   return row(`<div class="row-h"><label class="l" for="n-${key}">${lab}</label><span class="num"><input id="n-${key}" type="number" inputmode="decimal" data-k="${key}" value="${v}" min="${l.min}" max="${l.max}" step="${l.step}"><i>${esc(f.unit || '')}</i></span></div><input type="range" data-k="${key}" min="${l.min}" max="${l.max}" step="${l.step}" value="${v}" style="--p:${pct(key, Number(v))}" aria-label="${lab}" tabindex="-1">`);
@@ -78,9 +78,10 @@ const walls = () => `<div class="row"><div class="row-h"><span class="l">Walls</
 // ------------------------------------------------------------------ sidebar
 function renderSide() {
   const open = store.get<Record<string, boolean>>('tg:open2', { size: true });
-  const sec = (id: string, name: string, body: string) => `<details class="sec" data-sec="${id}" ${open[id] ? 'open' : ''}><summary>${name}<span class="meta" id="meta-${id}"></span></summary><div>${body}</div></details>`;
+  const sec = (id: string, name: string, body: string) => `<details class="sec" data-sec="${id}" ${open[id] ? 'open' : ''}><summary>${name}</summary><div>${body}</div></details>`;
   const k = (...keys: (keyof Params)[]) => keys.map(x => field(x)).join('');
   $('#form').innerHTML = [
+    sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
     sec('size', 'Size', k('width', 'depth', 'tableHeight', 'boxHeight', 'profile')),
     sec('structure', 'Structure', k('shelf', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
     sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfMaterial', 'shelfThk')),
@@ -92,7 +93,6 @@ function renderSide() {
       <label class="switch"><span>See through walls</span><input type="checkbox" id="v-xray"></label>
       <label class="switch"><span>Exploded</span><input type="checkbox" id="v-explode"></label>
       <label class="switch"><span>Camera preview</span><input type="checkbox" id="v-pip" ${pipOn ? 'checked' : ''}></label>`),
-    sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
   ].join('');
   $$<HTMLDetailsElement>('details.sec').forEach(d => d.addEventListener('toggle', () => {
     open[d.dataset.sec!] = d.open; store.set('tg:open2', open);
@@ -108,7 +108,6 @@ function renderSide() {
 // the parts of the sidebar that are lists, redrawn on every change
 function renderDynamic() {
   $('#cam-list').innerHTML = M.cameras.map(c => `<button type="button" class="cam-item" data-pick="cam_${c.spec.id}"><b>${esc(c.spec.name)}</b><small>${c.spec.width}×${c.spec.height} · ${c.hfov.toFixed(0)}°</small></button>`).join('');
-  $('#meta-cameras').textContent = String(M.cameras.length);
   renderTimeline();
   const cuts = cutList(M), metres = cuts.reduce((a, c) => a + c.length * c.qty, 0) / 1000, lines = bom(M);
   const stock = P.stockLength ? nest(M) : null, pieces = cuts.reduce((a, c) => a + c.qty, 0);
@@ -116,14 +115,11 @@ function renderDynamic() {
     <p class="sub">Cut list</p><div class="list">${cuts.map(c => `<div class="li"><span class="mark">${c.mark}</span><span class="t">${c.length} mm<small>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}${c.taps ? ` · ${esc(c.taps)}` : ''}</small></span><span class="q">×${c.qty}</span></div>`).join('')}</div>
     ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
     <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
-  $('#meta-parts').textContent = `${pieces} pieces`;
-  const cks = checks(M), bad = cks.filter(c => !c.ok);
-  $('#checks').innerHTML = cks.map(c => `<div class="ck ${c.ok ? 'ok' : c.level}">${esc(c.text)}</div>`).join('');
-  $('#meta-checks').textContent = bad.length ? `${bad.length} to review` : 'all pass';
-  const st = $('#status');
-  st.className = `dot-btn ${bad.some(c => c.level === 'error') ? 'bad' : bad.length ? 'warn' : ''}`;
-  st.textContent = bad.length ? `${bad.length} check${bad.length > 1 ? 's' : ''} to review` : 'All checks pass';
-  $('#dims').textContent = `${round(P.width)} × ${round(P.depth)} × ${round(M.topZ)} mm`;
+  // checks only show up when something needs attention
+  const bad = checks(M).filter(c => !c.ok && c.level !== 'info');
+  $('#checks').innerHTML = bad.map(c => `<div class="ck ${c.level}">${esc(c.text)}</div>`).join('');
+  $<HTMLElement>('[data-sec=checks]').hidden = !bad.length;
+  $<HTMLElement>('[data-sec=checks] summary').textContent = bad.length === 1 ? 'One thing to check' : `${bad.length} things to check`;
 }
 
 // push P into every bound control that is not being typed in
@@ -137,7 +133,6 @@ function syncAll() {
     if ((el as HTMLInputElement).type === 'range') el.style.setProperty('--p', pct(k, Number(v)));
   }
   $$<HTMLElement>('[data-out]').forEach(o => (o.textContent = `${Math.round(Number(P[o.dataset.out as keyof Params]) * 100)}%`));
-  $$<HTMLElement>('[data-hex]').forEach(o => (o.textContent = String(P[o.dataset.hex as keyof Params])));
   $$<HTMLInputElement>('[data-panel]').forEach(c => (c.checked = P.panels[c.dataset.panel as PanelFace]));
   $$<HTMLElement>('[data-row]').forEach(r => { const f = FIELDS[r.dataset.row!]; r.hidden = !!f?.show && !f.show(P); });
 }
@@ -175,7 +170,6 @@ document.addEventListener('click', e => {
   const face = t.closest<HTMLElement>('[data-cam-face]');
   if (face) return camSet(c => (c.face = face.dataset.camFace as Face));
   if (t.closest('#cam-add')) return addCamera();
-  if (t.closest('#status')) { const d = $<HTMLDetailsElement>('[data-sec=checks]'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
   if (!t.closest('details.more')) $<HTMLDetailsElement>('details.more').open = false;
 });
 
@@ -220,7 +214,7 @@ function renderSelected() {
   } else if (part.kind === 'camera') body = cameraEditor(part.id.slice(4));
   else if (part.id.startsWith('foot') || part.id.startsWith('caster')) body = field('base') + field('casterWheel');
   const mark = markOf[part.id] || '', light = /^#(f|e|d|c)/i.test(colorOf(part));
-  box.innerHTML = `<div class="selcard"><div class="selcard-h"><span class="chip" style="background:${colorOf(part)};color:${light ? '#1a47c9' : '#fff'}">${mark}</span><div><span class="k">${kind}</span><b>${esc(part.name)}</b><span class="spec">${esc(part.spec)}</span></div><button type="button" class="icon-btn" data-act="deselect" aria-label="Deselect"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>${body}</div>`;
+  box.innerHTML = `<div class="selcard"><div class="selcard-h"><span class="chip" style="background:${colorOf(part)};color:${light ? '#1a47c9' : '#fff'}" title="${kind}">${mark}</span><div><b>${esc(part.name)}</b><span class="spec">${esc(part.spec)}</span></div><button type="button" class="icon-btn" data-act="deselect" aria-label="Deselect"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>${body}</div>`;
   syncAll();
 }
 
@@ -308,14 +302,13 @@ function renderTimeline() {
   const n = M.steps.length, v = stepIdx < 0 ? n : stepIdx, s = stepIdx < 0 ? null : M.steps[stepIdx];
   const tl = document.getElementById('tl') as HTMLInputElement | null;
   if (tl && document.activeElement === tl) {   // dragging: only relabel
-    el.querySelector('.tl-n')!.textContent = s ? `${stepIdx + 1}/${n}` : 'Done';
+    el.querySelector('.tl-n')!.textContent = s ? `${stepIdx + 1} of ${n}` : 'Done';
     el.querySelector('.tl-t')!.textContent = s ? s.title : 'The finished table';
     tl.style.setProperty('--p', `${(v / n) * 100}%`);
     return;
   }
-  el.innerHTML = `<div class="tl-h"><span class="tl-n">${s ? `${stepIdx + 1}/${n}` : 'Done'}</span><span class="tl-t">${s ? esc(s.title) : 'The finished table'}</span><button type="button" class="icon-btn" id="tl-play" aria-label="${playT ? 'Pause' : 'Play the assembly'}">${playT ? '<svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>' : '<svg viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5z" fill="currentColor"/></svg>'}</button></div>
+  el.innerHTML = `<div class="tl-h"><span class="tl-n">${s ? `${stepIdx + 1} of ${n}` : 'Done'}</span><span class="tl-t">${s ? esc(s.title) : 'The finished table'}</span><button type="button" class="icon-btn" id="tl-play" aria-label="${playT ? 'Pause' : 'Play the assembly'}">${playT ? '<svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>' : '<svg viewBox="0 0 16 16"><path d="M5 3.5l7 4.5-7 4.5z" fill="currentColor"/></svg>'}</button></div>
     <input type="range" id="tl" min="0" max="${n}" step="1" value="${v}" style="--p:${(v / n) * 100}%" aria-label="Assembly step">`;
-  document.getElementById('meta-assembly')!.textContent = `${n} steps`;
   document.getElementById('tl-play')!.addEventListener('click', () => (playT ? stopPlay() : play()));
 }
 function play() {
