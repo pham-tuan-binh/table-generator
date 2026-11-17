@@ -17,18 +17,19 @@ export interface ArmConfig {
   approach: [number, number, number];       // the gripper's approach axis, in that link
   fingers: { joint: string; open: number; shut: number }[];
   rest: Q;                                  // a comfortable pose to start from
-  shells: string[];                         // meshes with a light shell between dark ends (the rest are dark)
+  shells: string[];                         // single meshes to split into a white middle and dark ends (parts named *white* are white whole)
 }
 
+// i2rt YAM, from MuJoCo Menagerie (MIT, i2rt robotics): the shells are their own parts
 export const YAM: ArmConfig = {
   ik: ['joint1', 'joint2', 'joint3', 'joint4', 'joint5'],
-  toolLink: 'gripper',
-  toolOffset: [0, 0, 0.14465],   // i2rt: TCP 144.65 mm out along the flange's +Z
+  toolLink: 'link_6',
+  toolOffset: [0, -0.0335, 0.13],   // the pinch point between the pads, measured from the finger meshes
   approach: [0, 0, 1],
-  fingers: [{ joint: 'joint7', open: -0.038, shut: -0.012 }, { joint: 'joint8', open: -0.038, shut: -0.012 }],
-  rest: { joint1: 0, joint2: 0.9, joint3: 1.4, joint4: 0.5, joint5: 0, joint6: 0 },
-  // as on the real arm: white shells on the upper arm and forearm, black everything else
-  shells: ['link2.stl', 'link3.stl'],
+  // each finger slides 1 mm per mm of gap on its side; shut = a 37.8 mm ToyBlock, just touching
+  fingers: [{ joint: 'left_finger', open: 0.034, shut: 0.0187 }, { joint: 'right_finger', open: -0.034, shut: -0.0187 }],
+  rest: { joint1: 0, joint2: 0.8, joint3: 1.2, joint4: 0.4, joint5: 0, joint6: 0 },
+  shells: [],
 };
 
 const nums = (s: string | null, d = '0 0 0') => (s ?? d).trim().split(/\s+/).map(Number);
@@ -84,10 +85,14 @@ export class Arm {
     for (const v of def.visuals) {
       const g = meshes[v.mesh];
       if (!g || !this.links[v.link]) continue;
-      const mesh = new THREE.Mesh(cfg.shells.includes(v.mesh) ? shell(g) : g, cfg.shells.includes(v.mesh) ? mats.body : mats.dark);
-      mesh.applyMatrix4(frame(v.xyz, v.rpy));
-      mesh.castShadow = shadows; mesh.receiveShadow = shadows;
-      this.links[v.link].add(mesh);
+      // shell links split in two: the white shell, and dark ends in the same material as every joint
+      const parts: [THREE.BufferGeometry, THREE.Material][] = /white/.test(v.mesh) ? [[g, mats.body]] : cfg.shells.includes(v.mesh) ? [[shell(g).white, mats.body], [shell(g).dark, mats.dark]] : [[g, mats.dark]];
+      for (const [geo, mat] of parts) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.applyMatrix4(frame(v.xyz, v.rpy));
+        mesh.castShadow = shadows; mesh.receiveShadow = shadows;
+        this.links[v.link].add(mesh);
+      }
     }
     this.tool.position.set(...cfg.toolOffset);
     this.links[cfg.toolLink].add(this.tool);
@@ -151,25 +156,27 @@ export class Arm {
   }
 }
 
-// a link with a light shell along its middle and dark ends: vertex colours along its long axis
-const shellCache = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
-function shell(g: THREE.BufferGeometry): THREE.BufferGeometry {
+// a link with a white shell along its middle and dark ends: its triangles split in two by
+// where each triangle's centre lies along the link's long axis
+const shellCache = new Map<THREE.BufferGeometry, { white: THREE.BufferGeometry; dark: THREE.BufferGeometry }>();
+function shell(g: THREE.BufferGeometry) {
   let out = shellCache.get(g);
   if (out) return out;
-  out = g.clone();
-  out.computeBoundingBox();
-  const b = out.boundingBox!, size = b.getSize(new THREE.Vector3()), ax = size.x > size.y ? (size.x > size.z ? 0 : 2) : size.y > size.z ? 1 : 2;
-  // one colour per triangle, from its centre, so the shell's edge is crisp instead of a grey blend
-  const pos = out.attributes.position, col = new Float32Array(pos.count * 3), lo = b.min.getComponent(ax), len = size.getComponent(ax);
+  g.computeBoundingBox();
+  const b = g.boundingBox!, size = b.getSize(new THREE.Vector3()), ax = size.x > size.y ? (size.x > size.z ? 0 : 2) : size.y > size.z ? 1 : 2;
+  const pos = g.attributes.position, nor = g.attributes.normal, lo = b.min.getComponent(ax), len = size.getComponent(ax);
+  const w: number[] = [], d: number[] = [], wn: number[] = [], dn: number[] = [];
   for (let i = 0; i + 2 < pos.count; i += 3) {
     const t = ((pos.getComponent(i, ax) + pos.getComponent(i + 1, ax) + pos.getComponent(i + 2, ax)) / 3 - lo) / len;
-    const c = t > 0.17 && t < 0.83 ? [1, 1, 1] : [0.07, 0.075, 0.085];
-    for (let k = 0; k < 3; k++) col.set(c, (i + k) * 3);
+    const [P, N] = t > SHELL[0] && t < SHELL[1] ? [w, wn] : [d, dn];
+    for (let k = 0; k < 3; k++) { P.push(pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k)); N.push(nor.getX(i + k), nor.getY(i + k), nor.getZ(i + k)); }
   }
-  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const make = (p: number[], n: number[]) => { const o = new THREE.BufferGeometry(); o.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); o.setAttribute('normal', new THREE.Float32BufferAttribute(n, 3)); return o; };
+  out = { white: make(w, wn), dark: make(d, dn) };
   shellCache.set(g, out);
   return out;
 }
+const SHELL = [0.24, 0.76];   // the white part of a long link, as a fraction of its length
 
 function solveN(A: number[][], b: number[]): number[] {
   const n = b.length, M = A.map((r, i) => [...r, b[i]]);

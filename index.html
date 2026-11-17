@@ -43,7 +43,10 @@
 
 <div class="pip" id="pip" hidden>
   <div class="pip-view" id="pip-view"></div>
-  <div class="pip-bar"><div class="pip-tabs" id="pip-tabs" role="tablist" aria-label="Camera"></div><button type="button" class="pip-close" id="pip-close" aria-label="Hide camera view"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+  <button type="button" class="pip-btn pip-prev" id="pip-prev" aria-label="Previous camera"><svg viewBox="0 0 16 16"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button>
+  <button type="button" class="pip-btn pip-next" id="pip-next" aria-label="Next camera"><svg viewBox="0 0 16 16"><path d="M6 3.5L10.5 8 6 12.5"/></svg></button>
+  <button type="button" class="pip-btn pip-close" id="pip-close" aria-label="Hide camera view"><svg viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg></button>
+  <span class="pip-name" id="pip-name"></span>
 </div>
 <div class="tip" id="tip" hidden></div>
 <div class="placing" id="placing" hidden><span>Click a rail or post to mount <b id="placing-name"></b></span><button type="button" class="ghost" id="placing-cancel">Cancel</button></div>

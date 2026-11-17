@@ -333,12 +333,21 @@ function syncPip() {
   $('#pip').hidden = !on;
   const cb = document.getElementById('v-pip') as HTMLInputElement | null;
   if (cb) cb.checked = pipOn;
-  $('#pip-tabs').innerHTML = P.cameras.map(c => `<button type="button" role="tab" data-pipcam="${c.id}" aria-selected="${c.id === pipCam}">${esc(c.name)}</button>`).join('');
+  const cam = P.cameras.find(c => c.id === pipCam);
+  $('#pip-name').textContent = cam ? cam.name : '';
+  $('#pip').toggleAttribute('data-single', P.cameras.length < 2);
   const pose = M.cameras.find(c => c.spec.id === pipCam);
   if (pose) $('#pip-view').style.aspectRatio = `${pose.spec.width} / ${pose.spec.height}`;
   world.showCamera(on ? pipCam : null, $('#pip-view'));
 }
-$('#pip-tabs').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-pipcam]'); if (b) { pipCam = b.dataset.pipcam!; syncPip(); } });
+// step through the cameras: arrows on the view, or the arrow keys while the pointer is over it
+const stepCam = (d: number) => { const i = P.cameras.findIndex(c => c.id === pipCam), n = P.cameras.length; if (n) { pipCam = P.cameras[(i + d + n) % n].id; syncPip(); } };
+$('#pip-prev').addEventListener('click', () => stepCam(-1));
+$('#pip-next').addEventListener('click', () => stepCam(1));
+let overPip = false;
+$('#pip').addEventListener('pointerenter', () => (overPip = true));
+$('#pip').addEventListener('pointerleave', () => (overPip = false));
+document.addEventListener('keydown', e => { if (!overPip || (e.target as HTMLElement).closest('input,select')) return; if (e.key === 'ArrowLeft') stepCam(-1); if (e.key === 'ArrowRight') stepCam(1); });
 $('#pip-close').addEventListener('click', () => { pipOn = false; syncPip(); });
 function showSide(on: boolean) {
   const was = !$('#side').hidden;

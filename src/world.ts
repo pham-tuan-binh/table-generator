@@ -71,14 +71,13 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   let entries: Entry[] = [], model: Model | null = null;
   let mats: Record<string, THREE.Material> = {}, buildMats: Record<string, THREE.Material> = {};
   let xray = false, realistic = true;
-  // a pair of YAM arms stacking cubes on the worktop, loaded once in the background
+  // a pair of YAM arms working ToyBlocks' stack-three task, loaded once in the background
   let bench: Bench | null = null, armsOn = true;
   const armMats = {
-    body: new THREE.MeshPhysicalMaterial({ color: 0xf2f1ee, vertexColors: true, metalness: 0.1, roughness: 0.45, clearcoat: 0.2 }),   // white shells, black ends
+    body: new THREE.MeshPhysicalMaterial({ color: 0xf2f1ee, metalness: 0.05, roughness: 0.45, clearcoat: 0.2 }),   // white shells
     dark: new THREE.MeshPhysicalMaterial({ color: 0x17181b, metalness: 0.35, roughness: 0.45 }),     // anodised black: base, joints, wrist, gripper
-    cubes: [new THREE.MeshPhysicalMaterial({ color: 0xf4f4f2, roughness: 0.35, clearcoat: 0.3 }), new THREE.MeshPhysicalMaterial({ color: 0x2f6bff, roughness: 0.35, clearcoat: 0.3 })] as [THREE.Material, THREE.Material],
   };
-  loadKit(new URL('robots/yam/', document.baseURI).href, 'hero').then(kit => { bench = new Bench(kit, armMats); root.add(bench.group); placeBench(); }).catch(e => console.warn('arms:', e));
+  loadKit(new URL('robots/yam/', document.baseURI).href, new URL('toyblocks/', document.baseURI).href, 'hero').then(kit => { bench = new Bench(kit, armMats); root.add(bench.group); placeBench(); }).catch(e => console.warn('arms:', e));
   function placeBench() {
     if (!bench || !model) return;
     const legs = model.profs.legs.s;
