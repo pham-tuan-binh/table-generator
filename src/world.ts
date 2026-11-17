@@ -18,7 +18,7 @@ export interface Hit { part: Part; place: PlaceHit | null; screen: [number, numb
 const ACCENT = 0xffffff, CAM = 0xffffff;
 
 // the blue studio backdrop, same gradient as the page behind it
-function backdrop(): THREE.Texture {
+export function backdrop(): THREE.Texture {
   const c = document.createElement('canvas'); c.width = 512; c.height = 512;
   const g = c.getContext('2d')!, r = g.createRadialGradient(256, 195, 0, 256, 195, 420);
   r.addColorStop(0, '#2f78ff'); r.addColorStop(0.42, '#1f5be6'); r.addColorStop(0.78, '#1b47c7'); r.addColorStop(1, '#1a3aa8');

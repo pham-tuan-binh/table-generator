@@ -7,7 +7,7 @@ import { urdf } from './urdf.ts';
 import { mjcf, mjcfScene } from './mjcf.ts';
 import { usda, stl } from './usd.ts';
 import { cameraFrames, f, profilesUsed } from './common.ts';
-import { bom, bomCsv, cutCsv, cutList, checks, nest } from '../bom.ts';
+import { bom, bomCsv, cutCsv, cutList, checks, nest, joins } from '../bom.ts';
 import { material, PROFILES, ProfileId } from '../params.ts';
 
 export type Files = Record<string, string | ArrayBuffer | Uint8Array>;
@@ -69,6 +69,7 @@ export function readme(m: Model, link = ''): string {
     '| `params.json` | the inputs; drop it on the web app or run `npm run generate -- params.json` |', '');
   L.push(`Frames: origin on the floor under the table centre, z up, x across the width (left to right), y toward the back. The worktop surface centre is \`worktop_frame\` at z = ${f(m.worktopZ / 1000)} m.`, '');
   L.push(`## Checks`, '', ...checks(m).map(c => `- ${c.ok ? '✓' : c.level === 'error' ? '✗' : '!'} ${c.text}`), '');
+  L.push(`## How it goes together`, '', ...joins(m).map(j => `- ${j}`), '');
   L.push(`## Bill of materials`, '', '| Group | Item | Spec | Qty | Note |', '|---|---|---|---:|---|', ...bom(m).map(b => `| ${b.group} | ${b.item} | ${b.spec} | ${b.qty} | ${b.note || ''} |`), '');
   L.push(`## Cut list`, '', '| Mark | Length | Qty | Parts | Taps |', '|---|---:|---:|---|---|', ...cutList(m).map(c => `| ${c.mark} | ${c.length} mm | ${c.qty} | ${[...new Set(c.names.map(n => n.split(',')[0]))].join(', ')} | ${c.taps} |`), '');
   if (p.stockLength) {

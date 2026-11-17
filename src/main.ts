@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import { Params, DEFAULTS, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, PanelFace, Face } from './params.ts';
 import { buildModel, Model, Part, round } from './model.ts';
 import { createWorld, Hit, PlaceHit } from './world.ts';
-import { bom, cutList, nest, checks, bomCsv, cost } from './bom.ts';
+import { bom, cutList, nest, checks, bomCsv, cost, joins } from './bom.ts';
 import { bundle, cameraJson, Files } from './export/bundle.ts';
 import { glb } from './export/glb.ts';
 
@@ -115,6 +115,7 @@ function renderDynamic() {
   $('#parts').innerHTML = `<div class="stats"><div class="stat"><b>${round(metres)} m</b><span>extrusion</span></div><div class="stat"><b>${round(M.mass)} kg</b><span>total</span></div><div class="stat"><b>${'$' + Math.round(cost(M))}</b><span>frame, rough</span></div></div>
     <p class="sub">Cut list</p><div class="list">${cuts.map(c => `<div class="li"><span class="mark">${c.mark}</span><span class="t">${c.length} mm<small>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}${c.taps ? ` · ${esc(c.taps)}` : ''}</small></span><span class="q">×${c.qty}</span></div>`).join('')}</div>
     ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
+    <p class="sub">How it goes together</p><div class="steps-txt">${joins(M).map(j => `<p>${esc(j)}</p>`).join('')}</div>
     <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
   const z = M.sizing;
   $('#sizing').textContent = `Legs ${z.legs}, worktop rails ${z.rails}${z.supports ? ` with ${z.supports} support${z.supports > 1 ? 's' : ''}` : ''}${P.lowerRing !== 'none' ? `, ${P.shelf ? 'shelf' : 'lower'} rails ${z.lower}` : ''}, box ${z.box}. `

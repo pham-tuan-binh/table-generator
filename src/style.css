@@ -137,3 +137,4 @@ details.more>summary{width:36px;padding:6px 0}
   .pip{width:min(200px,46vw);right:8px;top:8px;bottom:auto}
 }
 .num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.num input{-moz-appearance:textfield;appearance:textfield}
+.steps-txt p{margin:0 0 8px;color:var(--fg1);font-size:13.5px;line-height:1.5}

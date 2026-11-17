@@ -1,3 +1,5 @@
 node_modules
 dist
 out
+video/frames
+video/*.mp4

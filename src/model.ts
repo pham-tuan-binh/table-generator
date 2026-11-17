@@ -95,42 +95,46 @@ export function buildModel(input: Params): Model {
   const corners: Record<string, [number, number]> = { FL: [-1, -1], FR: [1, -1], BL: [-1, 1], BR: [1, 1] };
   const cornerName: Record<string, string> = { FL: 'front left', FR: 'front right', BL: 'back left', BR: 'back right' };
 
-  // ---- legs: floor to the worktop; box posts: worktop to the top, outer faces flush
+  // ---- legs: floor to the worktop. Everything else is centred on the legs' centre lines,
+  // so where a smaller profile meets a bigger one their slots line up and one bracket
+  // reaches a slot on both. The box posts stand on the leg tops.
+  const cx = W / 2 - sl / 2, cy = D / 2 - sl / 2;   // centre lines of the legs
   for (const [k, [sx, sy]] of Object.entries(corners)) {
-    memberPart(`leg_${k}`, `Leg, ${cornerName[k]}`, { axis: 'z', prof: sizing.legs, a: [sx * (W / 2 - sl / 2), sy * (D / 2 - sl / 2), baseH], length: Ht - baseH }, 2);
-    memberPart(`post_${k}`, `Box post, ${cornerName[k]}`, { axis: 'z', prof: sizing.box, a: [sx * (W / 2 - sb / 2), sy * (D / 2 - sb / 2), Ht], length: Htot - Ht }, 6);
+    memberPart(`leg_${k}`, `Leg, ${cornerName[k]}`, { axis: 'z', prof: sizing.legs, a: [sx * cx, sy * cy, baseH], length: Ht - baseH }, 2);
+    memberPart(`post_${k}`, `Box post, ${cornerName[k]}`, { axis: 'z', prof: sizing.box, a: [sx * cx, sy * cy, Ht], length: Htot - Ht }, 6);
   }
 
-  // ---- rings of rails: outer faces flush with the frame, ends against the corner members
-  const ring = (level: string, label: string, z: number, prof: ProfileId, corner: number, sides: ('front' | 'back' | 'left' | 'right')[], stepY: number, stepX: number) => {
+  // ---- rings of rails on the legs' centre lines, ends against the corner members
+  // (half = half the size of what stands at the corners)
+  const ring = (level: string, label: string, z: number, prof: ProfileId, half: number, sides: ('front' | 'back' | 'left' | 'right')[], stepY: number, stepX: number) => {
     const sz = PROFILES[prof].s;
     for (const side of sides) {
       const isX = side === 'front' || side === 'back';
       const sgn = side === 'front' || side === 'left' ? -1 : 1;
       const m: Member = isX
-        ? { axis: 'x', prof, a: [-W / 2 + corner, sgn * (D / 2 - sz / 2), z - sz / 2], length: W - 2 * corner }
-        : { axis: 'y', prof, a: [sgn * (W / 2 - sz / 2), -D / 2 + corner, z - sz / 2], length: D - 2 * corner };
+        ? { axis: 'x', prof, a: [-cx + half, sgn * cy, z - sz / 2], length: 2 * (cx - half) }
+        : { axis: 'y', prof, a: [sgn * cx, -cy + half, z - sz / 2], length: 2 * (cy - half) };
       memberPart(`rail_${level}_${side}`, `${label} rail, ${side}`, m, isX ? stepX : stepY);
     }
   };
   const lowerSides: ('front' | 'back' | 'left' | 'right')[] = p.lowerRing === 'full' ? ['left', 'right', 'front', 'back'] : p.lowerRing === 'sides-back' ? ['left', 'right', 'back'] : [];
-  ring('lower', p.shelf ? 'Shelf' : 'Lower', p.lowerHeight, sizing.lower, sl, lowerSides, 3, 4);
-  ring('table', 'Worktop', Ht, sizing.rails, sl, ['left', 'right', 'front', 'back'], 3, 4);
-  ring('top', 'Top', Htot, sizing.box, sb, ['left', 'right', 'front', 'back'], 7, 7);
+  ring('lower', p.shelf ? 'Shelf' : 'Lower', p.lowerHeight, sizing.lower, sl / 2, lowerSides, 3, 4);
+  ring('table', 'Worktop', Ht, sizing.rails, sl / 2, ['left', 'right', 'front', 'back'], 3, 4);
+  ring('top', 'Top', Htot, sizing.box, sb / 2, ['left', 'right', 'front', 'back'], 7, 7);
 
   // ---- bars under the worktop, flush with the worktop rails, front to back
   const nSup = sizing.supports;
   for (let i = 0; i < nSup; i++) {
     const x = -W / 2 + sl + ((W - 2 * sl) * (i + 1)) / (nSup + 1);
-    memberPart(`support_${i + 1}`, `Worktop support ${i + 1}`, { axis: 'y', prof: sizing.rails, a: [x, -D / 2 + sr, Ht - sr / 2], length: D - 2 * sr }, 4);
+    memberPart(`support_${i + 1}`, `Worktop support ${i + 1}`, { axis: 'y', prof: sizing.rails, a: [x, -cy + sr / 2, Ht - sr / 2], length: 2 * cy - sr }, 4);
   }
   // and under the shelf
   for (let i = 0; i < sizing.shelfSupports; i++) {
     const x = -W / 2 + sl + ((W - 2 * sl) * (i + 1)) / (sizing.shelfSupports + 1), sw = profs.lower.s;
-    memberPart(`shelf_support_${i + 1}`, `Shelf support ${i + 1}`, { axis: 'y', prof: sizing.lower, a: [x, -D / 2 + sw, p.lowerHeight - sw / 2], length: D - 2 * sw }, 4);
+    memberPart(`shelf_support_${i + 1}`, `Shelf support ${i + 1}`, { axis: 'y', prof: sizing.lower, a: [x, -cy + sw / 2, p.lowerHeight - sw / 2], length: 2 * cy - sw }, 4);
   }
   if (p.overheadBar)
-    memberPart('bar_overhead', 'Overhead camera bar', { axis: 'x', prof: sizing.box, a: [-W / 2 + sb, p.overheadBarY, Htot - sb / 2], length: W - 2 * sb }, 7);
+    memberPart('bar_overhead', 'Overhead camera bar', { axis: 'x', prof: sizing.box, a: [-cx + sb / 2, p.overheadBarY, Htot - sb / 2], length: 2 * cx - sb }, 7);
 
   // ---- boards resting on a ring, notched round whatever stands at the corners
   const board = (id: string, name: string, role: Role, z: number, matId: string, t: number, step: number, n: number) => {
@@ -147,15 +151,16 @@ export function buildModel(input: Params): Model {
   };
   if (p.shelf) board('shelf', 'Shelf board', 'shelf', p.lowerHeight, p.shelfMaterial, p.shelfThk, 5, sl);
   const wt = p.worktop ? p.worktopThk : 0;
-  if (p.worktop) board('worktop', 'Worktop', 'worktop', Ht, p.worktopMaterial, p.worktopThk, 5, sb);
+  const footNotch = Math.ceil(sl / 2 + sb / 2 + sb);
+  if (p.worktop) board('worktop', 'Worktop', 'worktop', Ht, p.worktopMaterial, p.worktopThk, 5, footNotch);
 
   // ---- box walls: sheets held in the box posts' and top rails' slots
   const pm = material(p.panelMaterial), t = p.panelThk;
   const zb = Ht + wt, zt = Htot - sb + e;
   const wall = (face: 'back' | 'front' | 'left' | 'right') => {
     const isX = face === 'back' || face === 'front', sgn = face === 'front' || face === 'left' ? -1 : 1;
-    const span = (isX ? W : D) - 2 * sb + 2 * e, h = zt - zb;
-    const c: V3 = isX ? [0, sgn * (D / 2 - sb / 2), (zb + zt) / 2] : [sgn * (W / 2 - sb / 2), 0, (zb + zt) / 2];
+    const span = 2 * ((isX ? cx : cy) - sb / 2) + 2 * e, h = zt - zb;
+    const c: V3 = isX ? [0, sgn * cy, (zb + zt) / 2] : [sgn * cx, 0, (zb + zt) / 2];
     const sz: V3 = isX ? [span, t, h] : [t, span, h];
     parts.push({ id: `panel_${face}`, name: `${cap(face)} wall`, kind: 'panel', role: 'panel', step: 6, boxes: [{ c, s: sz }], cyls: [],
       outline: [[0, 0], [span, 0], [span, h], [0, h]], plane: isX ? 'xz' : 'yz', thk: t, materialId: pm.id,
@@ -163,13 +168,13 @@ export function buildModel(input: Params): Model {
   };
   for (const f of ['back', 'left', 'right', 'front'] as const) if (p.panels[f]) wall(f);
   if (p.panels.roof)
-    parts.push({ id: 'panel_roof', name: 'Roof', kind: 'panel', role: 'panel', step: 7, boxes: [{ c: [0, 0, Htot + t / 2], s: [W, D, t] }], cyls: [],
-      outline: [[0, 0], [W, 0], [W, D], [0, D]], plane: 'xy', thk: t, materialId: pm.id,
-      mass: (W * D / 1e6) * (t / 1000) * pm.density, spec: `${pm.name}, ${t} mm, ${round(W)} × ${round(D)}`, collide: true });
+    parts.push({ id: 'panel_roof', name: 'Roof', kind: 'panel', role: 'panel', step: 7, boxes: [{ c: [0, 0, Htot + t / 2], s: [2 * cx + sb, 2 * cy + sb, t] }], cyls: [],
+      outline: [[0, 0], [2 * cx + sb, 0], [2 * cx + sb, 2 * cy + sb], [0, 2 * cy + sb]], plane: 'xy', thk: t, materialId: pm.id,
+      mass: ((2 * cx + sb) * (2 * cy + sb) / 1e6) * (t / 1000) * pm.density, spec: `${pm.name}, ${t} mm, ${round(2 * cx + sb)} × ${round(2 * cy + sb)}`, collide: true });
 
   // ---- feet or casters under each leg
   for (const [k, [sx, sy]] of Object.entries(corners)) {
-    const x = sx * (W / 2 - sl / 2), y = sy * (D / 2 - sl / 2), tap = profs.legs.endTap;
+    const x = sx * cx, y = sy * cy, tap = profs.legs.endTap;
     if (p.base === 'feet') {
       parts.push({ id: `foot_${k}`, name: `Levelling foot, ${cornerName[k]}`, kind: 'hardware', role: 'dark', step: 2, boxes: [],
         cyls: [{ a: [x, y, 0], b: [x, y, 8], r: 20 }, { a: [x, y, 8], b: [x, y, baseH], r: 4 }], mass: 0.08,
@@ -183,11 +188,24 @@ export function buildModel(input: Params): Model {
     }
   }
 
+  // ---- each box post stands on its leg, held by two L brackets on the worktop rails' top slots
+  for (const [k, [sx, sy]] of Object.entries(corners)) {
+    const bl = sb * 0.9, bt = Math.max(2.5, sb * 0.12), bw = sb * 0.8, x = sx * cx, y = sy * cy;
+    for (const [axis, dir] of [['x', -sx], ['y', -sy]] as const) {
+      const off = sb / 2 + bt / 2, run = sb / 2 + bl / 2;
+      const boxes: Box[] = axis === 'x'
+        ? [{ c: [x + dir * off, y, Ht + bl / 2], s: [bt, bw, bl] }, { c: [x + dir * run, y, Ht + bt / 2], s: [bl, bw, bt] }]
+        : [{ c: [x, y + dir * off, Ht + bl / 2], s: [bw, bt, bl] }, { c: [x, y + dir * run, Ht + bt / 2], s: [bw, bl, bt] }];
+      parts.push({ id: `bracket_post_${k}_${axis}`, name: `L bracket, box post ${cornerName[k]}`, kind: 'hardware', role: 'hw', step: 6,
+        boxes, cyls: [], mass: 0.02, spec: `${sizing.box} L bracket, 2 hole`, collide: false });
+    }
+  }
+
   // ---- an L bracket at each rail end: under the rail where it meets a leg, on its side
   // where it meets another rail at the same level (supports, the overhead bar)
   const sized = (axis: Axis, along: number, across: number, up: number): V3 => axis === 'x' ? [along, across, up] : [across, along, up];
   for (const part of [...parts]) {
-    if (part.kind !== 'member' || part.member!.axis === 'z' || part.id.startsWith('rail_top')) continue;
+    if (part.kind !== 'member' || part.member!.axis === 'z' || part.id.startsWith('rail_top') || part.id.startsWith('bracket')) continue;
     const m = part.member!, ax = AX[m.axis], toLeg = part.id.startsWith('rail_'), s = PROFILES[m.prof].s;
     const bl = s * 0.9, bt = Math.max(2.5, s * 0.12), bw = s * 0.8;
     const q: V3 = m.axis === 'x' ? [0, 1, 0] : [1, 0, 0];
