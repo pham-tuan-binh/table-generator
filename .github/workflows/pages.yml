@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npm run build
       - name: Smoke-test the generator
         run: npm run generate -- "" out && test -f out/mjcf/scene.xml && test -f out/urdf/frame.urdf && test -f out/usd/frame.usda
