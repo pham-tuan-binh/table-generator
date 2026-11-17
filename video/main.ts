@@ -44,6 +44,12 @@ function paramsAt(t: number): Params {
   });
 }
 
+// count every load (wood, blocks, HDRI) from the start, so the first frame waits for all of them
+let pending = 0;
+const mgr = THREE.DefaultLoadingManager, start = mgr.itemStart.bind(mgr), end = mgr.itemEnd.bind(mgr);
+mgr.itemStart = (u: string) => { pending++; start(u); };
+mgr.itemEnd = (u: string) => { pending--; end(u); };
+
 // ------------------------------------------------------------------ scene
 const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
@@ -274,11 +280,6 @@ function frame(t: number) {
 declare global { interface Window { frame: (t: number) => void; ready: Promise<void>; DURATION: number; FPS: number } }
 window.FPS = FPS; window.DURATION = DURATION;
 window.frame = frame;
-// every texture (wood, blocks, HDRI) must be on screen before the first frame is kept
-let pending = 0;
-const mgr = THREE.DefaultLoadingManager, start = mgr.itemStart.bind(mgr), end = mgr.itemEnd.bind(mgr);
-mgr.itemStart = (u: string) => { pending++; start(u); };
-mgr.itemEnd = (u: string) => { pending--; end(u); };
 async function settled() {
   for (let quiet = 0; quiet < 3;) { await new Promise(r => setTimeout(r, 100)); quiet = pending === 0 ? quiet + 1 : 0; }
 }
