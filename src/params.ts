@@ -120,7 +120,7 @@ export const DEFAULTS: Params = {
   frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#d9b98c', shelfColor: '#d9b98c', panelOpacity: 1,
   cameras: [
     { id: 'overhead', name: 'overhead', preset: 'usb-1080', width: 1920, height: 1080, hfov: 70.4, near: 20, far: 5000, rate: 30,
-      mount: 'bar_overhead', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 0, 0], yaw: 0, pitch: 90, roll: 0 },
+      mount: 'bar_overhead', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 0, 0], yaw: 90, pitch: 90, roll: 0 },
     { id: 'front', name: 'front', preset: 'usb-1080', width: 1920, height: 1080, hfov: 70.4, near: 20, far: 5000, rate: 30,
       mount: 'rail_top_front', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 60, 0], yaw: 90, pitch: 40, roll: 0 },
   ],

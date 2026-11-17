@@ -241,12 +241,21 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   const persp = new THREE.PerspectiveCamera(60, 16 / 9, 0.01, 50);
   persp.layers.set(0);
   let pipEl: HTMLElement | null = null;
+  // the robot camera's view: rendered into a corner of the main canvas, copied into a small
+  // canvas inside the preview card (so CSS can round and clip it), then the main view is
+  // drawn over that corner again
+  let pipCanvas: HTMLCanvasElement | null = null;
   function drawPip() {
     const c = model?.cameras.find(x => x.spec.id === pipCam);
     if (!c || !pipEl || pipEl.offsetParent === null) return;
-    const r = pipEl.getBoundingClientRect(), cr = renderer.domElement.getBoundingClientRect();
-    const x = r.left - cr.left, y = cr.bottom - r.bottom, w = r.width, h = r.height;
+    const r = pipEl.getBoundingClientRect(), cr = renderer.domElement.getBoundingClientRect(), dpr = renderer.getPixelRatio();
+    const w = Math.round(r.width), h = Math.round(r.height), x = 0, y = 0;   // bottom-left corner in GL terms
     if (w < 4 || h < 4) return;
+    if (!pipCanvas || pipCanvas.parentElement !== pipEl) {
+      pipCanvas = document.createElement('canvas');
+      pipCanvas.className = 'pip-canvas';
+      pipEl.prepend(pipCanvas);
+    }
     const T = (v: V3) => new THREE.Vector3(v[0], v[2], -v[1]);
     persp.position.copy(T(c.pos).multiplyScalar(0.001));
     persp.up.copy(T(c.u));
@@ -259,6 +268,8 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     renderer.render(scene, persp);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, cr.width, cr.height);
+    if (pipCanvas.width !== w * dpr || pipCanvas.height !== h * dpr) { pipCanvas.width = w * dpr; pipCanvas.height = h * dpr; }
+    pipCanvas.getContext('2d')!.drawImage(renderer.domElement, 0, (cr.height - h) * dpr, w * dpr, h * dpr, 0, 0, w * dpr, h * dpr);
   }
 
   const inset = { l: 0, r: 0, t: 0, b: 0 };
@@ -304,8 +315,8 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     }
     if (!moving && !dirty && !pipCam) return;
     dirty = false;
-    composer.render();
     drawPip();
+    composer.render();
   });
 
   return {
