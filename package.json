@@ -1,0 +1,25 @@
+{
+  "name": "table-generator",
+  "version": "0.1.0",
+  "description": "Parametric aluminium-extrusion robot test table: sim-ready assets (URDF, MJCF, USD, GLB), BOM and build plan from a handful of parameters.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "generate": "tsx scripts/generate.ts"
+  },
+  "dependencies": {
+    "jszip": "^3.10.2",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/three": "^0.187.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
