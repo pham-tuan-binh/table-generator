@@ -7,7 +7,6 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { createStudio } from './studio.ts';
 import { Bench, loadKit, BENCH_MIN_WIDTH } from './bench.ts';
 import { Model, Part, V3 } from './model.ts';
@@ -48,15 +47,10 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   const frusta = new THREE.Group();
   root.add(frusta);
 
-  // post: render, outlines for hover and selection, tone mapping
+  // post: render (no screen-space AO: it haloed the arms), outlines for hover and selection, tone mapping
   const target = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
-  // ambient occlusion: where parts meet and corners close in, light can't reach
-  const gtao = new GTAOPass(scene, camera, 1, 1);
-  gtao.updateGtaoMaterial({ radius: 0.12, distanceExponent: 1.5, thickness: 1, scale: 1.2, samples: 12 });
-  gtao.blendIntensity = 0.85;
-  composer.addPass(gtao);
   const selPass = new OutlinePass(new THREE.Vector2(1, 1), scene, camera);
   Object.assign(selPass, { edgeStrength: 4, edgeGlow: 0, edgeThickness: 1, pulsePeriod: 0 });
   selPass.visibleEdgeColor.set(ACCENT); selPass.hiddenEdgeColor.set(0xffffff);

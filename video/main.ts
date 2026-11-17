@@ -7,7 +7,6 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { normalize, Params } from '../src/params.ts';
 import { buildModel, Model } from '../src/model.ts';
@@ -55,10 +54,6 @@ const studio = createStudio(renderer, scene);
 const camera = new THREE.PerspectiveCamera(28, W / H, 0.05, 300);
 const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(W, H, { samples: 4, type: THREE.HalfFloatType }));
 composer.addPass(new RenderPass(scene, camera));
-const gtao = new GTAOPass(scene, camera, W, H);
-gtao.updateGtaoMaterial({ radius: 0.12, distanceExponent: 1.5, thickness: 1, scale: 1.2, samples: 12 });
-gtao.blendIntensity = 0.85;
-composer.addPass(gtao);
 composer.addPass(new OutputPass());
 const root = new THREE.Group();   // design space: mm, z up
 root.rotation.x = -Math.PI / 2;
@@ -264,15 +259,13 @@ function frame(t: number) {
   camera.position.copy(tgt).add(new THREE.Vector3(Math.sin(ar) * Math.cos(er), Math.sin(er), Math.cos(ar) * Math.cos(er)).multiplyScalar(dist));
   camera.lookAt(tgt);
   camera.setViewOffset(W, H, lerp(0, -W * 0.15, k), 0, W, H);
-  gtao.enabled = k > 0.35;   // contact shading only matters close up
   studio.fit(lerp(9, size * 1.25, k), tgt.clone().setY(0));
   studio.rig(p.width / 1000, p.depth / 1000, m.topZ / 1000);
 
   // words: one large line in the open blue, at the start and at the end
   const title = document.getElementById('title')!;
-  const opening = Math.min(ramp(t, 0.6, 1.4), 1 - ramp(t, 4.0, 4.8)), ending = ramp(t, 44.4, 45.4);
-  if (opening > 0) { setHtml('title-h', 'Generate sim-ready assets for<br>aluminium-extrusion eval tables'); title.style.opacity = String(opening); }
-  else if (ending > 0) { setHtml('title-h', 'URDF, MJCF, USD and a bill of materials,<br>from one design'); title.style.opacity = String(ending); }
+  const ending = ramp(t, 44.4, 45.4);
+  if (ending > 0) { setHtml('title-h', 'URDF, MJCF, USD and a bill of materials,<br>from one design'); title.style.opacity = String(ending); }
   else title.style.opacity = '0';
   ui(t, p, m);
   composer.render();
@@ -281,4 +274,12 @@ function frame(t: number) {
 declare global { interface Window { frame: (t: number) => void; ready: Promise<void>; DURATION: number; FPS: number } }
 window.FPS = FPS; window.DURATION = DURATION;
 window.frame = frame;
-window.ready = setup().then(() => frame(0));
+// every texture (wood, blocks, HDRI) must be on screen before the first frame is kept
+let pending = 0;
+const mgr = THREE.DefaultLoadingManager, start = mgr.itemStart.bind(mgr), end = mgr.itemEnd.bind(mgr);
+mgr.itemStart = (u: string) => { pending++; start(u); };
+mgr.itemEnd = (u: string) => { pending--; end(u); };
+async function settled() {
+  for (let quiet = 0; quiet < 3;) { await new Promise(r => setTimeout(r, 100)); quiet = pending === 0 ? quiet + 1 : 0; }
+}
+window.ready = setup().then(() => { frame(0); return settled(); }).then(() => frame(0));
