@@ -2,7 +2,7 @@
 // cameras, an assembly timeline, the parts list, view toggles and the downloads.
 // The design is kept in the URL hash, so a link is the design.
 import JSZip from 'jszip';
-import { Params, DEFAULTS, PROFILES, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, PanelFace, Face } from './params.ts';
+import { Params, DEFAULTS, MATERIALS, CAMERA_PRESETS, CASTERS, LIMITS, normalize, toHash, fromHash, clone, material, cameraPreset, PanelFace, Face } from './params.ts';
 import { buildModel, Model, Part, round } from './model.ts';
 import { createWorld, Hit, PlaceHit } from './world.ts';
 import { bom, cutList, nest, checks, bomCsv } from './bom.ts';
@@ -29,14 +29,15 @@ type Opt = [string | number, string];
 interface F { key: keyof Params; label: string; type: 'num' | 'seg' | 'select' | 'bool' | 'color' | 'range'; unit?: string; options?: Opt[]; show?: (p: Params) => boolean; swatches?: string[] }
 const FRAME_SW = ['#eef0f2', '#d4d7db', '#9a9fa6', '#4b5058', '#232427'];
 const PANEL_SW = ['#f4f4f2', '#dfe2e6', '#b9bec6', '#cfe3ee', '#2b2c30'];
-const BOARD_SW = ['#f3f3f1', '#e3e5e8', '#a9aeb5', '#d9b98c', '#2b2c30'];
+const BOARD_SW = ['#2f3a52', '#3d4a66', '#a9aeb5', '#f3f3f1', '#d9b98c'];
 const MAT_OPTS: Opt[] = MATERIALS.map(m => [m.id, m.name]);
 const FIELDS: Record<string, F> = Object.fromEntries(([
   { key: 'width', label: 'Width', type: 'num', unit: 'mm' },
   { key: 'depth', label: 'Depth', type: 'num', unit: 'mm' },
   { key: 'tableHeight', label: 'Table height', type: 'num', unit: 'mm' },
   { key: 'boxHeight', label: 'Box height', type: 'num', unit: 'mm' },
-  { key: 'profile', label: 'Extrusion', type: 'seg', options: Object.values(PROFILES).map(p => [p.id, p.id]) },
+  { key: 'load', label: 'Load on the worktop', type: 'num', unit: 'kg' },
+  { key: 'shelfLoad', label: 'Load on the shelf', type: 'num', unit: 'kg', show: p => p.shelf },
   { key: 'shelf', label: 'Storage shelf', type: 'bool' },
   { key: 'lowerRing', label: 'Lower rails', type: 'seg', options: [['full', 'All sides'], ['sides-back', 'Open front'], ['none', 'None']], show: p => !p.shelf },
   { key: 'lowerHeight', label: 'Shelf height', type: 'num', unit: 'mm', show: p => p.lowerRing !== 'none' },
@@ -82,8 +83,8 @@ function renderSide() {
   const k = (...keys: (keyof Params)[]) => keys.map(x => field(x)).join('');
   $('#form').innerHTML = [
     sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
-    sec('size', 'Size', k('width', 'depth', 'tableHeight', 'boxHeight', 'profile')),
-    sec('structure', 'Structure', k('shelf', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
+    sec('size', 'Size and load', k('width', 'depth', 'tableHeight', 'boxHeight', 'load') + `<p class="note" id="sizing"></p>`),
+    sec('structure', 'Structure', k('shelf', 'shelfLoad', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
     sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfMaterial', 'shelfThk')),
     sec('colours', 'Colours', k('frameColor', 'panelColor', 'worktopColor', 'shelfColor', 'panelOpacity')),
     sec('cameras', 'Cameras', `<div id="cam-list" class="list"></div><button type="button" class="add" id="cam-add">Add a camera</button>`),
@@ -115,6 +116,8 @@ function renderDynamic() {
     <p class="sub">Cut list</p><div class="list">${cuts.map(c => `<div class="li"><span class="mark">${c.mark}</span><span class="t">${c.length} mm<small>${esc([...new Set(c.names.map(n => n.split(',')[0]))].join(', '))}${c.taps ? ` · ${esc(c.taps)}` : ''}</small></span><span class="q">×${c.qty}</span></div>`).join('')}</div>
     ${stock ? `<p class="sub">${stock.bars.length} bars of ${P.stockLength} mm${stock.tooLong.length ? `, ${stock.tooLong.join(', ')} too long` : ''}</p>` : ''}
     <p class="sub">Hardware and boards</p><div class="list">${lines.filter(l => l.group !== 'Extrusion').map(l => `<div class="li"><span class="t">${esc(l.item)}<small>${esc(l.spec)}</small></span><span class="q">×${l.qty}</span></div>`).join('')}</div>`;
+  const z = M.sizing, why = { sway: 'it would sway', sag: 'its rails would sag', buckling: 'its posts would be too slender' } as Record<string, string>;
+  $('#sizing').textContent = `Built from ${M.prof.id} extrusion.` + (z.governs ? ` A smaller size would not do: ${why[z.governs]}.` : '') + ` Rails sag ${z.sag.toFixed(1)} mm under load, the top moves ${z.sway.toFixed(1)} mm when the arm pushes.`;
   // checks only show up when something needs attention
   const bad = checks(M).filter(c => !c.ok && c.level !== 'info');
   $('#checks').innerHTML = bad.map(c => `<div class="ck ${c.level}">${esc(c.text)}</div>`).join('');
@@ -143,7 +146,7 @@ function setParam(k: keyof Params, raw: unknown) {
   if (typeof v === 'number' && !Number.isFinite(v)) return;
   (P as any)[k] = v;
   // a new material brings its usual thickness and colour
-  if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, PROFILES[P.profile].slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
+  if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, M.prof.slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
   if (k === 'worktopMaterial') { const m = material(String(v)); P.worktopThk = m.thk; P.worktopColor = m.color; }
   if (k === 'shelfMaterial') { const m = material(String(v)); P.shelfThk = m.thk; P.shelfColor = m.color; }
   update();
@@ -351,6 +354,7 @@ document.addEventListener('keydown', e => {
 function update() {
   P = normalize(P);
   M = buildModel(P);
+  P.profile = M.p.profile;
   markOf = Object.fromEntries(cutList(M).flatMap(c => c.ids.map(id => [id, c.mark])));
   const h = toHash(P);
   history.replaceState(null, '', h ? `#${h}` : location.pathname + location.search);

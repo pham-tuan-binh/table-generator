@@ -2,6 +2,7 @@
 // pose, mass and the build step it is fitted in. Pure data, no DOM, so the page, the
 // exporters and the command-line generator all read the same model.
 import { Params, PROFILES, ProfileSpec, material, CASTERS, FOOT_HEIGHT, cameraPreset, CameraSpec, Face } from './params.ts';
+import { sizeFrame, Sizing } from './structure.ts';
 
 export type V3 = [number, number, number];
 export type Axis = 'x' | 'y' | 'z';
@@ -56,6 +57,7 @@ export interface Model {
   com: V3;
   inertia: [number, number, number, number, number, number]; // ixx iyy izz ixy ixz iyz, kg·m² about the COM
   supportCount: number;
+  sizing: Sizing;
 }
 
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -74,7 +76,9 @@ export function memberBox(m: Member, s: number): Box {
   return { c, s: [m.axis === 'x' ? m.length : s, m.axis === 'y' ? m.length : s, m.axis === 'z' ? m.length : s] };
 }
 
-export function buildModel(p: Params): Model {
+export function buildModel(input: Params): Model {
+  // the extrusion follows from the rated load, never from a picker
+  const sizing = sizeFrame(input), p: Params = { ...input, profile: sizing.profile };
   const prof = PROFILES[p.profile], s = prof.s, e = prof.engage;
   const W = p.width, D = p.depth, Ht = p.tableHeight, Htot = p.tableHeight + p.boxHeight;
   const baseH = p.base === 'casters' ? CASTERS[p.casterWheel] : FOOT_HEIGHT;
@@ -211,7 +215,7 @@ export function buildModel(p: Params): Model {
   const bbox: [V3, V3] = [[-W / 2, -D / 2, 0], [W / 2, D / 2, Htot + (p.panels.roof ? t : 0)]];
   for (const q of all) for (let i = 0; i < 3; i++) { bbox[0][i] = Math.min(bbox[0][i], q[i]); bbox[1][i] = Math.max(bbox[1][i], q[i]); }
   const { mass, com, inertia } = massProps(parts.filter(pt => pt.kind !== 'camera'));
-  const model: Model = { p, prof, s, baseH, topZ: Htot, worktopZ, parts, cameras, steps: [], bbox, mass, com, inertia, supportCount: nSup };
+  const model: Model = { p, prof, s, baseH, topZ: Htot, worktopZ, parts, cameras, steps: [], bbox, mass, com, inertia, supportCount: nSup, sizing };
   model.steps = buildSteps(model);
   return model;
 }

@@ -32,7 +32,9 @@ export interface Params {
   depth: number;          // Y, outside
   tableHeight: number;    // floor to the top of the worktop rails
   boxHeight: number;      // top of the worktop rails to the top of the box
-  profile: ProfileId;
+  profile: ProfileId;     // chosen from the load, see structure.ts
+  load: number;           // kg the worktop is rated for
+  shelfLoad: number;      // kg the shelf is rated for
   base: BaseType;
   casterWheel: number;    // mm wheel diameter
   lowerRing: LowerRing;
@@ -74,6 +76,7 @@ export const PROFILES: Record<ProfileId, ProfileSpec> = {
 export interface MaterialSpec { id: string; name: string; density: number; thk: number; color: string; opacity?: number; cnc: boolean }
 // density in kg/m³
 export const MATERIALS: MaterialSpec[] = [
+  { id: 'phenolic', name: 'Slate phenolic worktop', density: 1400, thk: 12, color: '#2f3a52', cnc: true },
   { id: 'melamine', name: 'White melamine board', density: 680, thk: 18, color: '#f3f3f1', cnc: true },
   { id: 'hpl', name: 'HPL / mica laminate', density: 1400, thk: 3, color: '#f4f4f1', cnc: true },
   { id: 'acm', name: 'Aluminium composite (ACM)', density: 1270, thk: 3, color: '#eeeeee', cnc: true },
@@ -103,15 +106,15 @@ export const cameraPreset = (id: string) => CAMERA_PRESETS.find(p => p.id === id
 
 export const DEFAULTS: Params = {
   width: 1000, depth: 500, tableHeight: 750, boxHeight: 500,
-  profile: '2020', base: 'feet', casterWheel: 75,
+  profile: '2020', load: 25, shelfLoad: 10, base: 'feet', casterWheel: 75,
   lowerRing: 'full', lowerHeight: 180, shelf: true, supports: -1,
   overheadBar: true, overheadBarY: 0,
   panels: { back: true, left: true, right: true, front: false, roof: false },
   panelMaterial: 'hpl', panelThk: 3,
-  worktop: true, worktopMaterial: 'melamine', worktopThk: 18,
-  shelfMaterial: 'melamine', shelfThk: 18,
+  worktop: true, worktopMaterial: 'phenolic', worktopThk: 12,
+  shelfMaterial: 'phenolic', shelfThk: 12,
   stockLength: 0, kerf: 3,
-  frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#f3f3f1', shelfColor: '#f3f3f1', panelOpacity: 1,
+  frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#2f3a52', shelfColor: '#2f3a52', panelOpacity: 1,
   cameras: [
     { id: 'overhead', name: 'overhead', preset: 'usb-1080', width: 1920, height: 1080, hfov: 70.4, near: 20, far: 5000, rate: 30,
       mount: 'bar_overhead', along: 0.5, face: '-z', standoff: 20, aim: 'target', target: [0, 0, 0], yaw: 0, pitch: 90, roll: 0 },
@@ -123,6 +126,8 @@ export const DEFAULTS: Params = {
 export interface Limit { min: number; max: number; step: number }
 export const LIMITS: Partial<Record<keyof Params, Limit>> = {
   width: { min: 300, max: 3000, step: 10 },
+  load: { min: 0, max: 300, step: 5 },
+  shelfLoad: { min: 0, max: 150, step: 5 },
   depth: { min: 250, max: 1500, step: 10 },
   tableHeight: { min: 200, max: 1200, step: 10 },
   boxHeight: { min: 150, max: 1500, step: 10 },

@@ -74,6 +74,7 @@ select.sel{appearance:none;-webkit-appearance:none;background-image:linear-gradi
 .btn.quiet{background:transparent;border-color:var(--w20);color:var(--fg2)}.btn.quiet:hover{color:var(--fg0);background:var(--w10)}
 .btn.grow{flex:1}.btn.icon{width:36px;padding:7px 0}.btn.sm{padding:4px 10px;font-size:12px}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
+.note{margin:0;color:var(--fg2);font-size:13.5px;line-height:1.5}
 .ghost{border:1px solid rgba(26,71,201,.25);background:transparent;border-radius:999px;padding:4px 10px;font-weight:600;font-size:12px;cursor:pointer;color:var(--ink)}
 
 /* the selected part, at the top of the sidebar */
@@ -135,3 +136,4 @@ details.more>summary{width:36px;padding:6px 0}
   .side{top:auto;left:8px;right:8px;bottom:8px;width:auto;height:55vh}
   .pip{width:min(200px,46vw);right:8px;top:8px;bottom:auto}
 }
+.num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}.num input{-moz-appearance:textfield;appearance:textfield}

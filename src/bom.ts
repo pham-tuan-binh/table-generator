@@ -80,7 +80,6 @@ export function bom(m: Model): BomLine[] {
 export function checks(m: Model): Check[] {
   const p = m.p, s = m.s, out: Check[] = [];
   const c = (ok: boolean, level: Check['level'], text: string) => out.push({ ok, level, text });
-  const postL = m.topZ - m.baseH;
   if (p.stockLength) {
     const { tooLong } = nest(m);
     c(!tooLong.length, 'error', tooLong.length ? `Pieces ${tooLong.join(', ')} are longer than the ${p.stockLength} mm stock. Use longer stock or cut to length.` : `Every piece fits the ${p.stockLength} mm stock.`);
@@ -88,8 +87,8 @@ export function checks(m: Model): Check[] {
   c(p.panelThk <= m.prof.slot - 0.3, 'error', p.panelThk <= m.prof.slot - 0.3 ? `${p.panelThk} mm walls fit the ${m.prof.slot} mm slot.` : `${p.panelThk} mm walls do not fit the ${m.prof.slot} mm slot of ${m.prof.id}. Use ${Math.floor((m.prof.slot - 0.3) * 2) / 2} mm or thinner.`);
   const ratio = m.topZ / Math.min(p.width, p.depth);
   c(ratio <= 2.5, 'warn', ratio <= 2.5 ? `Height is ${ratio.toFixed(1)}× the narrowest side: stable.` : `Height is ${ratio.toFixed(1)}× the narrowest side: it can tip. Widen the base or fix it to the wall.`);
-  const slender = postL / s;
-  c(slender <= 60 || p.lowerRing === 'full', 'warn', slender <= 60 || p.lowerRing === 'full' ? `Posts are braced (${round(postL)} mm long, ${m.prof.id}).` : `Posts are ${round(postL)} mm of ${m.prof.id} with no full lower ring: it will sway. Add the lower ring or use a bigger profile.`);
+  const z = m.sizing;
+  c(z.ok, 'error', z.ok ? `${m.prof.id} carries ${p.load} kg: rails sag ${z.sag.toFixed(1)} mm, the top moves ${z.sway.toFixed(1)} mm, posts have a safety factor of ${z.buckling.toFixed(0)}.` : `Even 4040 is not enough for ${p.load} kg at this size (sag ${z.sag.toFixed(1)} of ${z.sagLimit.toFixed(1)} mm allowed, sway ${z.sway.toFixed(1)} mm). Add worktop supports or the lower rails, or make it smaller.`);
   if (p.base === 'casters') c(p.lowerRing === 'full', 'warn', p.lowerRing === 'full' ? 'Casters with a full lower ring: the legs are tied together.' : 'Casters without a full lower ring load the post ends sideways. Add the full lower ring.');
   const span = p.width - 2 * s;
   const sup = m.supportCount, free = span / (sup + 1);
