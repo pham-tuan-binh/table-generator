@@ -3,11 +3,12 @@
 // animation, an exploded view, camera frustums and a live inset from any robot camera.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { createStudio } from './studio.ts';
 import { Model, Part, V3 } from './model.ts';
 import { partGeometries } from './geometry.ts';
 import { Face } from './params.ts';
@@ -18,30 +19,14 @@ export interface Hit { part: Part; place: PlaceHit | null; screen: [number, numb
 
 const ACCENT = 0xffffff, CAM = 0xffffff;
 
-// the blue studio backdrop, same gradient as the page behind it
-export function backdrop(): THREE.Texture {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 512;
-  const g = c.getContext('2d')!, r = g.createRadialGradient(256, 195, 0, 256, 195, 420);
-  r.addColorStop(0, '#2f78ff'); r.addColorStop(0.42, '#1f5be6'); r.addColorStop(0.78, '#1b47c7'); r.addColorStop(1, '#1a3aa8');
-  g.fillStyle = r; g.fillRect(0, 0, 512, 512);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
+export { backdrop } from './studio.ts';
 
 export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) => void; onSelect?: (h: Hit | null) => void } = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.92;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   el.appendChild(renderer.domElement);
-
   const scene = new THREE.Scene();
-  scene.background = backdrop();
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.95;
+  const studio = createStudio(renderer, scene, () => { dirty = true; });
 
   const camera = new THREE.PerspectiveCamera(32, 1, 0.02, 60);
   camera.position.set(-3.2, 2.2, 3.6);
@@ -53,26 +38,6 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   controls.maxDistance = 12;
   controls.maxPolarAngle = Math.PI * 0.495;
   controls.target.set(0, 0.6, 0);
-
-  // light: a soft key with shadows, a cool fill, the environment for reflections
-  const key = new THREE.DirectionalLight(0xffffff, 2.2);
-  key.position.set(-2.5, 5, 3);
-  key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
-  key.shadow.radius = 6;
-  key.shadow.bias = -0.0004;
-  key.shadow.normalBias = 0.02;
-  scene.add(key, key.target);
-  const fill = new THREE.DirectionalLight(0xdfe8ff, 0.6);
-  fill.position.set(3, 2, -2);
-  scene.add(fill);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xd8dbe0, 0.35));
-
-  // no floor to see, only the soft shadow the table casts on it
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ opacity: 0.28, color: 0x061a5c }));
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
 
   // design (mm, z up) inside a group turned into three's metres, y up
   const root = new THREE.Group();
@@ -86,6 +51,11 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   const target = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
+  // ambient occlusion: where parts meet and corners close in, light can't reach
+  const gtao = new GTAOPass(scene, camera, 1, 1);
+  gtao.updateGtaoMaterial({ radius: 0.12, distanceExponent: 1.5, thickness: 1, scale: 1.2, samples: 12 });
+  gtao.blendIntensity = 0.85;
+  composer.addPass(gtao);
   const selPass = new OutlinePass(new THREE.Vector2(1, 1), scene, camera);
   Object.assign(selPass, { edgeStrength: 4, edgeGlow: 0, edgeThickness: 1, pulsePeriod: 0 });
   selPass.visibleEdgeColor.set(ACCENT); selPass.hiddenEdgeColor.set(0xffffff);
@@ -138,8 +108,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     buildFrusta(m);
     // shadow camera hugs the table
     const [lo, hi] = m.bbox, r = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 1000;
-    Object.assign(key.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 0.1, far: 20 });
-    key.shadow.camera.updateProjectionMatrix();
+    studio.fit(r * 1.1, new THREE.Vector3((lo[0] + hi[0]) / 2000, 0, -(lo[1] + hi[1]) / 2000));
     if (first) intro();
     apply();
   }

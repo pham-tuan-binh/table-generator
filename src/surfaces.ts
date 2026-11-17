@@ -69,7 +69,7 @@ interface Surface {
   maps: () => { map?: THREE.Texture; rough?: THREE.Texture; normal?: THREE.Texture };
   tile: number;            // metres of surface one repeat of the maps covers
   roughness: number; metalness: number; normalScale: number;
-  clearcoat?: number; anisotropy?: number; photo?: boolean;
+  clearcoat?: number; anisotropy?: number; photo?: boolean; sheen?: number;
 }
 const memo = <T>(f: () => T) => { let v: T | undefined; return () => (v ??= f()); };
 const BRUSHED = memo(brushed);
@@ -92,14 +92,15 @@ let onTexture = () => {};
 export function onTextureLoad(cb: () => void) { onTexture = cb; }
 
 const SURFACES: Record<string, Surface> = {
-  aluminium: { maps: BRUSHED, tile: 0.25, roughness: 0.32, metalness: 0.9, normalScale: 0.18, clearcoat: 0.25, anisotropy: 0.55 },
+  aluminium: { maps: BRUSHED, tile: 0.25, roughness: 0.42, metalness: 0.85, normalScale: 0.15, clearcoat: 0.2, anisotropy: 0.45 },
   steel: { maps: BRUSHED, tile: 0.08, roughness: 0.3, metalness: 0.95, normalScale: 0.15 },
   rubber: { maps: FOAM, tile: 0.05, roughness: 0.92, metalness: 0, normalScale: 0.3 },
   plastic: { maps: FINE, tile: 0.08, roughness: 0.45, metalness: 0, normalScale: 0.2 },
   hpl: { maps: FINE, tile: 0.4, roughness: 0.42, metalness: 0, normalScale: 0.04, clearcoat: 0.15 },
   melamine: { maps: FINE, tile: 0.5, roughness: 0.38, metalness: 0, normalScale: 0.03, clearcoat: 0.2 },
   phenolic: { maps: SPECKLE, tile: 0.25, roughness: 0.5, metalness: 0, normalScale: 0.04, clearcoat: 0.18 },
-  foam: { maps: FOAM, tile: 0.12, roughness: 0.9, metalness: 0, normalScale: 0.08 },
+  // PVC foam board: smooth, satin, a soft sheen at grazing angles, no visible texture
+  foam: { maps: FINE, tile: 0.6, roughness: 0.72, metalness: 0, normalScale: 0.012, sheen: 0.35 },
   acm: { maps: FINE, tile: 0.6, roughness: 0.3, metalness: 0.1, normalScale: 0.06, clearcoat: 0.5 },
   'abs-black': { maps: FINE, tile: 0.2, roughness: 0.6, metalness: 0, normalScale: 0.3 },
   acrylic: { maps: FINE, tile: 1, roughness: 0.04, metalness: 0, normalScale: 0.02, clearcoat: 1 },
@@ -118,7 +119,7 @@ function physical(s: Surface, color: string, extra: THREE.MeshPhysicalMaterialPa
   return new THREE.MeshPhysicalMaterial({
     color: col, map: rep(m.map), roughnessMap: rep(m.rough), normalMap: rep(m.normal), normalScale: new THREE.Vector2(s.normalScale, s.normalScale),
     roughness: s.roughness, metalness: s.metalness, clearcoat: s.clearcoat ?? 0, clearcoatRoughness: 0.35,
-    anisotropy: s.anisotropy ?? 0, ...extra,
+    anisotropy: s.anisotropy ?? 0, sheen: s.sheen ?? 0, sheenRoughness: 0.8, sheenColor: new THREE.Color(0xffffff), ...extra,
   });
 }
 

@@ -51,12 +51,13 @@ const FIELDS: Record<string, F> = Object.fromEntries(([
   { key: 'worktop', label: 'Worktop board', type: 'bool' },
   { key: 'worktopMaterial', label: 'Worktop material', type: 'select', options: MAT_OPTS, show: p => p.worktop },
   { key: 'worktopThk', label: 'Worktop thickness', type: 'num', unit: 'mm', show: p => p.worktop },
-  { key: 'shelfMaterial', label: 'Shelf material', type: 'select', options: MAT_OPTS, show: p => p.shelf },
-  { key: 'shelfThk', label: 'Shelf thickness', type: 'num', unit: 'mm', show: p => p.shelf },
+  { key: 'shelfLikeWorktop', label: 'Shelf matches the worktop', type: 'bool', show: p => p.shelf },
+  { key: 'shelfMaterial', label: 'Shelf material', type: 'select', options: MAT_OPTS, show: p => p.shelf && !p.shelfLikeWorktop },
+  { key: 'shelfThk', label: 'Shelf thickness', type: 'num', unit: 'mm', show: p => p.shelf && !p.shelfLikeWorktop },
   { key: 'frameColor', label: 'Extrusion', type: 'color', swatches: FRAME_SW },
   { key: 'panelColor', label: 'Walls', type: 'color', swatches: PANEL_SW },
-  { key: 'worktopColor', label: 'Worktop', type: 'color', swatches: BOARD_SW },
-  { key: 'shelfColor', label: 'Shelf', type: 'color', swatches: BOARD_SW },
+  { key: 'worktopColor', label: 'Worktop and shelf', type: 'color', swatches: BOARD_SW },
+  { key: 'shelfColor', label: 'Shelf', type: 'color', swatches: BOARD_SW, show: p => p.shelf && !p.shelfLikeWorktop },
   { key: 'panelOpacity', label: 'Wall opacity', type: 'range' },
   { key: 'stockLength', label: 'Buy extrusion as', type: 'select', options: [[0, 'Cut to length'], [500, '500 mm bars'], [1000, '1000 mm bars'], [1500, '1500 mm bars'], [2000, '2000 mm bars'], [3000, '3000 mm bars']] },
   { key: 'kerf', label: 'Saw kerf', type: 'num', unit: 'mm', show: p => p.stockLength > 0 },
@@ -85,7 +86,7 @@ function renderSide() {
     sec('checks', 'Checks', `<div class="checks" id="checks"></div>`),
     sec('size', 'Size and load', k('width', 'depth', 'tableHeight', 'boxHeight', 'load') + `<p class="note" id="sizing"></p>`),
     sec('structure', 'Structure', k('shelf', 'shelfLoad', 'lowerRing', 'lowerHeight', 'supports', 'overheadBar', 'overheadBarY', 'base', 'casterWheel')),
-    sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfMaterial', 'shelfThk')),
+    sec('walls', 'Walls and boards', walls() + k('panelMaterial', 'panelThk', 'worktop', 'worktopMaterial', 'worktopThk', 'shelfLikeWorktop', 'shelfMaterial', 'shelfThk')),
     sec('colours', 'Colours', k('frameColor', 'panelColor', 'worktopColor', 'shelfColor', 'panelOpacity')),
     sec('cameras', 'Cameras', `<div id="cam-list" class="list"></div><button type="button" class="add" id="cam-add">Add a camera</button>`),
     sec('assembly', 'Assembly', `<div class="timeline" id="timeline"></div>`),
@@ -152,6 +153,7 @@ function setParam(k: keyof Params, raw: unknown) {
   // a new material brings its usual thickness and colour
   if (k === 'panelMaterial') { const m = material(String(v)); P.panelThk = Math.min(m.thk, M.profs.box.slot - 0.5); P.panelColor = m.color; P.panelOpacity = m.opacity ?? 1; }
   if (k === 'worktopMaterial') { const m = material(String(v)); P.worktopThk = m.thk; P.worktopColor = m.color; }
+  if (k === 'shelfMaterial' || k === 'shelfColor' || k === 'shelfThk') P.shelfLikeWorktop = false;
   if (k === 'shelfMaterial') { const m = material(String(v)); P.shelfThk = m.thk; P.shelfColor = m.color; }
   update();
 }

@@ -49,6 +49,7 @@ export interface Params {
   worktop: boolean;
   worktopMaterial: string;
   worktopThk: number;
+  shelfLikeWorktop: boolean;   // shelf uses the worktop's material, thickness and colour
   shelfMaterial: string;
   shelfThk: number;
   stockLength: number;    // 0 = cut to length
@@ -114,7 +115,7 @@ export const DEFAULTS: Params = {
   panels: { back: true, left: true, right: true, front: false, roof: false },
   panelMaterial: 'hpl', panelThk: 3,
   worktop: true, worktopMaterial: 'phenolic', worktopThk: 12,
-  shelfMaterial: 'phenolic', shelfThk: 12,
+  shelfLikeWorktop: true, shelfMaterial: 'phenolic', shelfThk: 12,
   stockLength: 0, kerf: 3,
   frameColor: '#d4d7db', panelColor: '#f4f4f2', worktopColor: '#2f3a52', shelfColor: '#2f3a52', panelOpacity: 1,
   cameras: [
@@ -158,6 +159,7 @@ export function normalize(input: Partial<Params>): Params {
   p.overheadBarY = Math.max(-(p.depth / 2 - 2 * s), Math.min(p.depth / 2 - 2 * s, p.overheadBarY));
   if (p.shelf && p.lowerRing !== 'full') p.lowerRing = 'full';
   if (!CASTERS[p.casterWheel]) p.casterWheel = 75;
+  if (p.shelfLikeWorktop) { p.shelfMaterial = p.worktopMaterial; p.shelfThk = p.worktopThk; p.shelfColor = p.worktopColor; }
   p.supports = Math.round(Math.max(-1, Math.min(6, Number(p.supports))));
   p.cameras = (p.cameras || []).map(c => ({ ...clone(DEFAULTS.cameras[0]), ...c }));
   return p;
