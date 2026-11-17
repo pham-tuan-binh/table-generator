@@ -87,6 +87,17 @@ function readableTurn(g: THREE.BufferGeometry): THREE.Quaternion {
   return new THREE.Quaternion().setFromRotationMatrix(to.multiply(from.invert()));
 }
 
+// ------------------------------------------------------------------ recorded physics
+// A bench simulated in MuJoCo (video/physics/sim.py) and stored frame by frame: both arms'
+// joints and fingers, and every block's pose, in this rig's frame. Played back, nothing is
+// scripted: blocks only move because the fingers squeezed and carried them.
+export interface Recording { fps: number; frames: number; size: number; glyphs: string[]; data: Int16Array; stride: number }
+export async function loadRecording(url: string): Promise<Recording> {
+  const [h, buf] = await Promise.all([fetch(url + '.json').then(r => r.json()), fetch(url + '.bin').then(r => r.arrayBuffer())]);
+  return { ...h, data: new Int16Array(buf), stride: 16 + 7 * h.glyphs.length };
+}
+const ARM_JOINTS = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6'];
+
 // ------------------------------------------------------------------ episodes
 interface Piece { id: number; glyph: string; spot: THREE.Vector2; yaw: number }
 interface Plan { home: Q; hf: Q; gf: Q; ht: Q; gt: Q; rel: THREE.Matrix4 }
@@ -165,7 +176,11 @@ export class Bench {
   private episodes: Episode[] = [];
   private loop = 0;
 
-  constructor(private kit: Kit, mats: { body: THREE.Material; dark: THREE.Material }, seed = 1, shadows = true, count = 4) {
+  private rec: Recording | null = null;
+  private qa = new THREE.Quaternion(); private qb = new THREE.Quaternion();
+
+  constructor(private kit: Kit, mats: { body: THREE.Material; dark: THREE.Material }, seed = 1, shadows = true, count = 4, rec: Recording | null = null) {
+    this.rec = rec;
     this.group.add(this.rig);
     for (let a = 0; a < 2; a++) {
       const arm = new Arm(kit.def, kit.meshes, mats, YAM, shadows);
@@ -180,7 +195,8 @@ export class Bench {
     // one scene, episodes back to back; each leaves the scene as it found it. Plans depend
     // only on the seed, so benches with the same seed share them
     const size = kit.blocks.size, key = `${seed}/${count}`, cached = PLANS.get(key);
-    if (cached) Object.assign(this, { pieces: cached.pieces, episodes: cached.episodes, moves: cached.moves, loop: cached.loop });
+    if (rec) { this.pieces = rec.glyphs.map((glyph, id) => ({ id, glyph, spot: new THREE.Vector2(), yaw: 0 })); this.loop = rec.frames / rec.fps; }
+    else if (cached) Object.assign(this, { pieces: cached.pieces, episodes: cached.episodes, moves: cached.moves, loop: cached.loop });
     else {
       this.pieces = makeScene(seed, size);
       let t = 0;
@@ -201,7 +217,7 @@ export class Bench {
       this.shadows.push(sh);
     }
     for (const a of this.arms) { const sh = blob(190); sh.position.set(a.root.position.x, a.root.position.y - 30, 0.4); (sh.material as THREE.MeshBasicMaterial).opacity = 0.45; this.rig.add(sh); }
-    if (!cached) { for (const m of this.moves) this.planMove(m); PLANS.set(key, { pieces: this.pieces, episodes: this.episodes, moves: this.moves, loop: this.loop }); }
+    if (!cached && !rec) { for (const m of this.moves) this.planMove(m); PLANS.set(key, { pieces: this.pieces, episodes: this.episodes, moves: this.moves, loop: this.loop }); }
   }
 
   // IK at the five waypoints of a move. The wrist roll is chosen twice: at the grasp, so the
@@ -243,6 +259,30 @@ export class Bench {
   // clamp the arm bases at the open front edge of a worktop this deep, facing the back
   layout(depth: number) { this.rig.position.set(0, -depth / 2 - this.arms[0].footprint().min.x * 1000, 0); this.rig.rotation.z = Math.PI; }
 
+  // a recorded frame, interpolated between the two nearest samples; past the end it holds still
+  private play(time: number) {
+    const r = this.rec!, x = Math.min(r.frames - 1, Math.max(0, time * r.fps)), i0 = Math.floor(x), i1 = Math.min(r.frames - 1, i0 + 1), k = x - i0;
+    const at = (c: number) => r.data[i0 * r.stride + c] * (1 - k) + r.data[i1 * r.stride + c] * k;
+    for (let a = 0; a < 2; a++) {
+      const q: Q = {}, o = a * 8;
+      ARM_JOINTS.forEach((j, n) => (q[j] = at(o + n) / 1e4));
+      q.left_finger = at(o + 6) / 2e4; q.right_finger = at(o + 7) / 2e4;
+      this.arms[a].set(q);
+    }
+    this.blocks.forEach((g, id) => {
+      const o = 16 + 7 * id, row = (f: number, c: number) => r.data[f * r.stride + o + c] / 32767;
+      g.position.set(at(o) / 20, at(o + 1) / 20, at(o + 2) / 20);   // 0.05 mm units to mm
+      this.qa.set(row(i0, 4), row(i0, 5), row(i0, 6), row(i0, 3)).normalize();
+      this.qb.set(row(i1, 4), row(i1, 5), row(i1, 6), row(i1, 3)).normalize();
+      g.quaternion.slerpQuaternions(this.qa, this.qb, k).multiply(this.kit.blocks.readable[this.pieces[id].glyph]);
+      g.scale.setScalar(1);
+      const sh = this.shadows[id], lift = g.position.z - this.kit.blocks.size / 2;
+      sh.position.set(g.position.x, g.position.y, 0.3);
+      (sh.material as THREE.MeshBasicMaterial).opacity = 0.55 * Math.max(0, 1 - lift / 90);
+      sh.visible = lift < 90;
+    });
+  }
+
   /** the goal of the episode playing at time t, bottom to top, in ToyBlocks' words */
   goalAt(time: number): string[] {
     const t = ((time % this.loop) + this.loop) % this.loop, ep = this.episodes.find(e => t < e.end) ?? this.episodes[0];
@@ -250,6 +290,7 @@ export class Bench {
   }
 
   update(time: number) {
+    if (this.rec) return this.play(time);
     const t = ((time % this.loop) + this.loop) % this.loop, qs: Q[] = [];
     for (let a = 0; a < 2; a++) {
       const arm = this.arms[a], m = this.moves.find(x => x.arm === a && t >= x.start && t < x.start + MOVE);

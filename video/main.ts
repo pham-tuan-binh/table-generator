@@ -14,7 +14,7 @@ import { buildModel, Model } from '../src/model.ts';
 import { partGeometries } from '../src/geometry.ts';
 import { createStudio } from '../src/studio.ts';
 import { createMaterials, worldUV } from '../src/surfaces.ts';
-import { Bench, loadKit, Kit } from '../src/bench.ts';
+import { Bench, loadKit, Kit, loadRecording, Recording } from '../src/bench.ts';
 
 export const FPS = 30, DURATION = 48;
 const W = 1920, H = 1080;
@@ -110,8 +110,11 @@ const SX = 3100, SY = 2200;
 async function setup() {
   const base = new URL('../', location.href).href;
   const [heroKit, crowdKit]: Kit[] = await Promise.all([loadKit(base + 'robots/yam/', base + 'toyblocks/', 'hero'), loadKit(base + 'robots/yam/', base + 'toyblocks/', 'crowd')]);
+  // every bench plays a MuJoCo run (video/physics/sim.py): seed 1 for the hero, 2 to 7 for the field
+  const recs: Record<number, Recording> = {};
+  await Promise.all([1, 2, 3, 4, 5, 6, 7].map(async s => { recs[s] = await loadRecording(`${base}bench/${s}`); }));
   const station = (kit: Kit, seed: number, x: number, y: number, phase: number, shadows: boolean, ring: number): Station => {
-    const group = new THREE.Group(), bench = new Bench(kit, armMats, seed, shadows, 2);
+    const group = new THREE.Group(), bench = new Bench(kit, armMats, seed, shadows, 2, recs[seed]);
     group.position.set(x, y, 0);
     group.add(bench.group);
     root.add(group);
@@ -127,7 +130,7 @@ async function setup() {
   }
   // six template rigs, never drawn themselves; their poses are copied onto the far tables
   for (let k = 0; k < TEMPLATES; k++) {
-    const holder = new THREE.Group(), bench = new Bench(crowdKit, armMats, 2 + k, false, 2);
+    const holder = new THREE.Group(), bench = new Bench(crowdKit, armMats, 2 + k, false, 2, recs[2 + k]);
     holder.add(bench.group);
     const meshes: THREE.Mesh[] = [];
     bench.group.traverse(o => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
