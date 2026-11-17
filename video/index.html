@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table Generator, launch video</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1a47c9}
+  html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#1f5be6;font-family:"Public Sans",system-ui,sans-serif;color:#fff;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+  canvas{position:absolute;inset:0;display:block}
+  .layer{position:absolute;inset:0;pointer-events:none}
+  /* words, large */
+  #title{position:absolute;left:0;right:0;top:140px;text-align:center}
+  #title .h{font-size:76px;font-weight:600;letter-spacing:-2px;line-height:1.1;max-width:1500px;margin:0 auto}
+  /* the app's own card: the sidebar, cropped to the control being used, at video scale */
+  .card{position:absolute;left:110px;top:50%;width:520px;padding:30px 34px 34px;border-radius:24px;background:rgba(14,48,170,.78);border:1.5px solid rgba(255,255,255,.2);backdrop-filter:blur(24px) saturate(1.25);-webkit-backdrop-filter:blur(24px) saturate(1.25);box-shadow:0 30px 80px -30px rgba(0,20,80,.6)}
+  .card .sec{font-size:30px;font-weight:600;letter-spacing:-.3px;margin-bottom:26px}
+  .card .row{display:flex;justify-content:space-between;align-items:baseline;font-size:28px;color:rgba(255,255,255,.9)}
+  .card .row b{font-weight:500;color:#fff}.card .row i{font-style:normal;color:rgba(255,255,255,.65);margin-left:6px}
+  .track{position:relative;height:6px;border-radius:6px;background:rgba(255,255,255,.22);margin-top:22px}
+  .fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:#fff}
+  .thumb{position:absolute;top:50%;width:26px;height:26px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 3px 10px rgba(0,20,80,.35)}
+  .seg{display:flex;gap:4px;padding:4px;border-radius:999px;background:rgba(8,22,78,.25);border:1.5px solid rgba(255,255,255,.16);margin-top:20px}
+  .seg span{flex:1;text-align:center;padding:12px 0;border-radius:999px;font-size:26px;font-weight:500;color:rgba(255,255,255,.75);transition:none}
+  .seg span.on{background:#fff;color:var(--ink)}
+  .dl{display:flex;align-items:center;justify-content:center;gap:12px;height:68px;border-radius:999px;background:#fff;color:var(--ink);font-size:28px;font-weight:600}
+  .menu{margin-top:16px;border-radius:20px;background:rgba(30,70,200,.55);border:1.5px solid rgba(255,255,255,.16);padding:8px}
+  .menu div{display:flex;justify-content:space-between;padding:14px 18px;border-radius:14px;font-size:27px;font-weight:500}
+  .menu div span{color:rgba(255,255,255,.65)}.menu div.on{background:rgba(255,255,255,.14)}
+  #cursor{position:absolute;width:38px;height:38px;margin:-3px 0 0 -4px;filter:drop-shadow(0 3px 6px rgba(0,10,40,.45))}
+</style>
+</head>
+<body>
+<div class="layer" id="title"><div class="h" id="title-h"></div></div>
+<div class="layer"><div class="card" id="card"></div></div>
+<svg class="layer" style="overflow:visible"><g id="cursor-g"><path id="cursor-path" d="M4 3l0 26 7-6.5 4.6 10.3 4.6-2-4.6-10.1 9.6-.2z" fill="#fff" stroke="#0b1d55" stroke-width="2" stroke-linejoin="round"/></g></svg>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

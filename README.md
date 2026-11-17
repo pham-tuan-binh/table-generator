@@ -1,66 +1,49 @@
 # Table Generator
 
-**Live:** https://pham-tuan-binh.github.io/table-generator/
+![Table Generator](.github/readme/app.png)
 
-Enter a few sizes and get a robot test table made of aluminium extrusion: a table with a box frame on top for the arm and cameras, a shelf and bracing below, and feet or casters underneath. The same parameters produce the sim assets for the virtual table and the build plan for the real one.
+Table Generator designs aluminium-extrusion test tables for robot arms: a table with a box frame on top for the arm and its cameras, a shelf underneath, and feet or casters. You set the size and the load it has to carry. It gives you the table as a simulation asset and the parts and instructions to build the real one.
 
-The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examples/so-frame). A pair of [i2rt YAM](https://github.com/i2rt-robotics/i2rt) arms (MIT, 610 mm apart as on i2rt's station) works on the worktop in the 3D view, stacking cubes on a scripted loop, so you can see the space and what each camera sees. The plywood texture and studio lighting come from [Poly Haven](https://polyhaven.com) (CC0). The app is a lit 3D scene with one sidebar. Click any rail, wall or board to change it, or click a rail to mount a camera on it. Drag the assembly timeline to watch the table go together.
+**Open it:** https://pham-tuan-binh.github.io/table-generator/
 
-## What you get
+## How it works
 
-| Output | Contents |
-|---|---|
-| **MuJoCo** `mjcf/scene.xml` | Static frame body with T-slot profile visual meshes, box colliders, and renderable cameras with `fovy` and `resolution` |
-| **URDF** `urdf/frame.urdf` | `base_link` with mass and inertia, a `worktop_frame` to mount a robot on, `<name>_camera_link` and `<name>_camera_optical_frame` per camera, and Gazebo camera sensors |
-| **OpenUSD** `usd/frame.usda` | z up, metres, PBR materials, `PhysicsCollisionAPI` colliders, `Camera` prims (Isaac Sim, usdview) |
-| **glTF** `frame.glb` | Colours and glTF cameras (Blender, three.js) |
-| `cameras.json` | Intrinsics K and the pose of each camera in ROS, OpenCV and OpenGL conventions |
-| `bom.csv`, `cutlist.csv` | Bill of materials: extrusion, brackets, screws, T-nuts, feet or casters, panels, cameras. Optional nesting into stock lengths |
-| `panels/*.dxf` | Panel outlines for CNC or laser cutting |
-| `README.md` | Checks, BOM, cut list, cameras and step-by-step build plan |
+You never choose the extrusion. Each part of the frame is sized for what it carries, and the cheapest option that does the job wins:
 
-## Parameters
+- **Legs** carry everything, so they're sized for sway and buckling.
+- **Worktop and shelf rails** are sized for sag, together with how many support bars go under the board.
+- **The box** only holds walls and cameras, so it stays 2020.
 
-- **Size and load:** width, depth, table height, box height, and the load the worktop (and shelf) must carry. You don't pick extrusions. Each part of the frame is sized for what it carries, for the lowest cost. The legs are sized for sway and buckling. The worktop and shelf rails are sized for sag, together with how many support bars go under the board, because more short bars can beat thicker rails. The box (posts, top rails, camera bar) carries only walls and cameras, so it stays 2020. For example, 100 kg on a 1 m table gives 4040 legs, 3030 worktop rails with one support, 2020 shelf rails and a 2020 box. The rules are in `src/structure.ts`. They are design aids, not certification.
-- **Below the worktop:** storage shelf, lower reinforcement rails (all four sides, sides and back, or none), and supports under the worktop.
-- **Base:** levelling feet, or braked casters (Ø50 to Ø100).
-- **Box:** wall panels on any side plus a roof, and an overhead camera bar.
-- **Panels:** materials (HPL, ACM, acrylic, polycarbonate, plywood, MDF, HDPE, aluminium) and thicknesses. The wall thickness is checked against the profile's slot width.
-- **Colours:** extrusion, walls, worktop and shelf, and wall opacity.
-- **Cameras:** as many as you like. Pick a preset or set your own resolution and FOV. Mount a camera on any rail or post with *Place on frame* (click a member in the 3D view), slide it along the member, and aim it at a point or by yaw/pitch/roll. The inset in the 3D view shows what that camera sees.
+The default 1.4 m table, rated for 30 kg, gets 3030 legs and rails under a 2020 box. Rate it for 120 kg and the legs and rails become 4040, while the box stays 2020. The rules of thumb are in [`src/structure.ts`](src/structure.ts). They are design aids, not certification.
 
-The design lives in the URL, so a link is the design. You can also save `params.json` from a download and load it again later.
+Where profiles of different sizes meet, everything sits on the legs' centre lines, so one bracket always reaches a slot on both. The parts list explains each joint and which slot width to buy.
 
-## Frame conventions
+Click any part to change it. Add cameras by clicking where they mount, and the preview shows what each one sees. A pair of [i2rt YAM](https://i2rt.com) arms works through [ToyBlocks](https://github.com/allenai/ToyBlocks) stacking tasks on the worktop, so you can judge the space before you build it.
 
-The origin is on the floor under the centre of the table. z points up, x runs across the width from left to right, and y runs from the front to the back. Units are metres in the sim files and millimetres everywhere else. Camera targets are given relative to the centre of the worktop surface.
+## What you download
 
-## Develop
+| File | What it's for |
+| --- | --- |
+| `mjcf/scene.xml` | MuJoCo, with cameras that render at their real resolution |
+| `urdf/frame.urdf` | ROS, Isaac Sim, PyBullet, Gazebo. Mount your robot at `worktop_frame` |
+| `usd/frame.usda` | Isaac Sim and Omniverse, with colliders and cameras |
+| `frame.glb` | Blender and the web |
+| `cameras.json` | Intrinsics and poses in ROS, OpenCV and OpenGL conventions |
+| `bom.csv`, `cutlist.csv`, `panels/*.dxf` | Ordering, cutting and CNC |
+| `README.md` | The checks, parts list, how it goes together, and the build steps |
+
+The design lives in the URL, so a link is the whole table.
+
+## Run it locally
 
 ```bash
 npm install
-npm run dev                                  # web app at localhost:5173
-npm run build                                # static site in dist/
-npm run generate -- params.json out/         # same files as the web download, from the command line
+npm run dev                              # the app
+npm run generate -- params.json out/     # the same download, from the command line
 ```
 
-Pushing to `main` builds the site and deploys it to GitHub Pages (`.github/workflows/pages.yml`).
+Pushes to `main` deploy to GitHub Pages.
 
-## Layout
+## Credits
 
-```
-src/params.ts      inputs, limits, materials, profiles, camera presets, URL hash
-src/model.ts       params -> parts (members, panels, hardware, cameras), mass/inertia, build steps
-src/structure.ts   sizes legs, rails, supports and box from the rated load, cheapest first
-src/bom.ts         BOM, cut list, stock nesting, design checks
-src/geometry.ts    three.js geometry (T-slot profile, boxes, cylinders)
-src/world.ts       the 3D scene: picking, outlines, assembly timeline, explode, camera preview
-src/studio.ts      lighting: studio HDRI, key light, shadows, backdrop
-src/surfaces.ts    realistic materials (generated and downloaded)
-src/arm.ts         URDF arms: kinematics and IK
-src/bench.ts       the YAM pair and its cube-stacking script
-public/robots/yam  YAM URDF and decimated meshes (i2rt, MIT)
-src/main.ts        the sidebar
-src/export/        urdf, mjcf, usd (+stl), glb, bundle (zip tree, DXF, cameras.json, README)
-scripts/generate.ts  command-line generator
-```
+The box-on-a-table layout comes from [SO-Frame](https://github.com/livekit-examples/so-frame). The YAM arm model is MuJoCo Menagerie's [`i2rt_yam`](https://github.com/google-deepmind/mujoco_menagerie/tree/main/i2rt_yam) (MIT, i2rt robotics). The alphabet blocks and the stacking task come from AllenAI's [ToyBlocks](https://github.com/allenai/ToyBlocks) (Apache-2.0). The studio lighting and plywood come from [Poly Haven](https://polyhaven.com) (CC0).
