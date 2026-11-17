@@ -3,7 +3,7 @@
 // waypoints and are eased between, so it looks right and costs nothing.
 //
 // Layout follows i2rt's YAM station: two arms side by side, 610 mm apart, both facing
-// into the workspace. Here they sit near the back of the worktop, facing the front.
+// into the workspace. Here they sit at the open front of the worktop, facing the back.
 // Everything is placed in a "rig" frame (mm, z up) whose origin is midway between the arm
 // bases, so the plan never depends on the table's size.
 import * as THREE from 'three';
@@ -93,8 +93,9 @@ export class Bench {
     }
   }
 
-  // put the arm bases near the back of a worktop this deep
-  layout(depth: number, backInset: number) { this.rig.position.set(0, depth / 2 - backInset, 0); }
+  // clamp the arm bases at the open front edge of a worktop this deep, facing the back:
+  // the back of each base plate sits on the edge
+  layout(depth: number) { this.rig.position.set(0, -depth / 2 - this.arms[0].footprint().min.x * 1000, 0); this.rig.rotation.z = Math.PI; }
 
   update(t: number) {
     const P = plan!, len = CYCLE * SLOT, c0 = Math.floor(t / len) * len;

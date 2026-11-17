@@ -17,7 +17,7 @@ export interface ArmConfig {
   approach: [number, number, number];       // the gripper's approach axis, in that link
   fingers: { joint: string; open: number; shut: number }[];
   rest: Q;                                  // a comfortable pose to start from
-  dark: (mesh: string) => boolean;          // which meshes are dark
+  shells: string[];                         // meshes with a light shell between dark ends (the rest are dark)
 }
 
 export const YAM: ArmConfig = {
@@ -27,7 +27,8 @@ export const YAM: ArmConfig = {
   approach: [0, 0, 1],
   fingers: [{ joint: 'joint7', open: -0.038, shut: -0.012 }, { joint: 'joint8', open: -0.038, shut: -0.012 }],
   rest: { joint1: 0, joint2: 0.9, joint3: 1.4, joint4: 0.5, joint5: 0, joint6: 0 },
-  dark: m => /tip|gripper/.test(m),
+  // as on the real arm: white shells on the upper arm and forearm, black everything else
+  shells: ['link2.stl', 'link3.stl'],
 };
 
 const nums = (s: string | null, d = '0 0 0') => (s ?? d).trim().split(/\s+/).map(Number);
@@ -83,13 +84,21 @@ export class Arm {
     for (const v of def.visuals) {
       const g = meshes[v.mesh];
       if (!g || !this.links[v.link]) continue;
-      const mesh = new THREE.Mesh(g, cfg.dark(v.mesh) ? mats.dark : mats.body);
+      const mesh = new THREE.Mesh(cfg.shells.includes(v.mesh) ? shell(g) : g, cfg.shells.includes(v.mesh) ? mats.body : mats.dark);
       mesh.applyMatrix4(frame(v.xyz, v.rpy));
       mesh.castShadow = shadows; mesh.receiveShadow = shadows;
       this.links[v.link].add(mesh);
     }
     this.tool.position.set(...cfg.toolOffset);
     this.links[cfg.toolLink].add(this.tool);
+  }
+
+  // the base plate's extent in the arm's own frame (metres), to clamp it at a table edge
+  footprint(): THREE.Box3 {
+    this.root.updateMatrixWorld(true);
+    const inv = this.root.matrixWorld.clone().invert(), box = new THREE.Box3();
+    for (const c of this.root.children) if ((c as THREE.Mesh).isMesh) { const g = (c as THREE.Mesh).geometry; g.computeBoundingBox(); box.union(g.boundingBox!.clone().applyMatrix4(inv.clone().multiply(c.matrixWorld))); }
+    return box;
   }
 
   set(q: Q) {
@@ -140,6 +149,24 @@ export class Arm {
     if (best.e > 2e-3) for (const s of [this.cfg.rest, { ...this.cfg.rest, joint1: Math.atan2(target.y, target.x) }]) { const r = solve({ ...seed, ...s }); if (r.e < best.e) best = r; }
     return best.q;
   }
+}
+
+// a link with a light shell along its middle and dark ends: vertex colours along its long axis
+const shellCache = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+function shell(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  let out = shellCache.get(g);
+  if (out) return out;
+  out = g.clone();
+  out.computeBoundingBox();
+  const b = out.boundingBox!, size = b.getSize(new THREE.Vector3()), ax = size.x > size.y ? (size.x > size.z ? 0 : 2) : size.y > size.z ? 1 : 2;
+  const pos = out.attributes.position, col = new Float32Array(pos.count * 3), lo = b.min.getComponent(ax), len = size.getComponent(ax);
+  for (let i = 0; i < pos.count; i++) {
+    const t = (pos.getComponent(i, ax) - lo) / len, white = t > 0.2 && t < 0.8;
+    col.set(white ? [1, 1, 1] : [0.07, 0.075, 0.085], i * 3);
+  }
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  shellCache.set(g, out);
+  return out;
 }
 
 function solveN(A: number[][], b: number[]): number[] {

@@ -74,18 +74,18 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
   // a pair of YAM arms stacking cubes on the worktop, loaded once in the background
   let bench: Bench | null = null, armsOn = true;
   const armMats = {
-    body: new THREE.MeshPhysicalMaterial({ color: 0x2b2d32, metalness: 0.55, roughness: 0.42, clearcoat: 0.2 }),
-    dark: new THREE.MeshPhysicalMaterial({ color: 0x151619, metalness: 0.2, roughness: 0.6 }),
+    body: new THREE.MeshPhysicalMaterial({ color: 0xf2f1ee, vertexColors: true, metalness: 0.1, roughness: 0.45, clearcoat: 0.2 }),   // white shells, black ends
+    dark: new THREE.MeshPhysicalMaterial({ color: 0x17181b, metalness: 0.35, roughness: 0.45 }),     // anodised black: base, joints, wrist, gripper
     cubes: [new THREE.MeshPhysicalMaterial({ color: 0xf4f4f2, roughness: 0.35, clearcoat: 0.3 }), new THREE.MeshPhysicalMaterial({ color: 0x2f6bff, roughness: 0.35, clearcoat: 0.3 })] as [THREE.Material, THREE.Material],
   };
   loadKit(new URL('robots/yam/', document.baseURI).href, 'hero').then(kit => { bench = new Bench(kit, armMats); root.add(bench.group); placeBench(); }).catch(e => console.warn('arms:', e));
   function placeBench() {
     if (!bench || !model) return;
-    const legs = model.profs.legs.s, box = model.profs.box.s;
+    const legs = model.profs.legs.s;
     const fits = model.p.width - 2 * legs >= BENCH_MIN_WIDTH && model.p.depth >= 380 && model.p.boxHeight >= 350;
     bench.group.visible = armsOn && fits && step == null && explodeTo === 0;
     bench.group.position.set(0, 0, model.worktopZ);
-    bench.layout(model.p.depth, legs / 2 + box / 2 + 75);
+    bench.layout(model.p.depth);
     dirty = true;
   }
   onTextureLoad(() => { dirty = true; });
@@ -127,6 +127,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     // shadow camera hugs the table
     const [lo, hi] = m.bbox, r = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 1000;
     studio.fit(r * 1.1, new THREE.Vector3((lo[0] + hi[0]) / 2000, 0, -(lo[1] + hi[1]) / 2000));
+    studio.rig(m.p.width / 1000, m.p.depth / 1000, m.topZ / 1000);
     if (first) intro();
     placeBench();
     apply();

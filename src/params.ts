@@ -109,7 +109,7 @@ export const cameraPreset = (id: string) => CAMERA_PRESETS.find(p => p.id === id
 
 export const DEFAULTS: Params = {
   // sized for a pair of i2rt YAM arms (610 mm apart) working on the worktop
-  width: 1200, depth: 700, tableHeight: 750, boxHeight: 700,
+  width: 1400, depth: 800, tableHeight: 750, boxHeight: 750,
   profile: '2020', load: 30, shelfLoad: 10, base: 'feet', casterWheel: 75,
   lowerRing: 'full', lowerHeight: 180, shelf: true, supports: -1,
   overheadBar: true, overheadBarY: 0,

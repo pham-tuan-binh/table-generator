@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 
 const HDRI = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/white_studio_05_1k.hdr';
 
@@ -17,7 +18,7 @@ export function backdrop(): THREE.Texture {
   return t;
 }
 
-export interface Studio { key: THREE.DirectionalLight; ready: Promise<void>; fit(span: number, centre?: THREE.Vector3): void }
+export interface Studio { key: THREE.DirectionalLight; ready: Promise<void>; fit(span: number, centre?: THREE.Vector3): void; rig(width: number, depth: number, top: number): void }
 
 export function createStudio(renderer: THREE.WebGLRenderer, scene: THREE.Scene, onChange: () => void = () => {}): Studio {
   renderer.toneMapping = THREE.NeutralToneMapping;
@@ -39,12 +40,18 @@ export function createStudio(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
     onChange();
   }).catch(() => { /* offline: the neutral room stays */ });
 
-  // the key: high, front left, soft-edged shadows
-  const key = new THREE.DirectionalLight(0xffffff, 1.5);
+  // the rig's own light: a diffuse panel the size of the box, just under the top rails,
+  // lighting the whole workspace evenly, as on a real test rig
+  RectAreaLightUniformsLib.init();
+  const panel = new THREE.RectAreaLight(0xffffff, 3.2, 1, 1);
+  scene.add(panel);
+
+  // a faint key from high front left: only enough to ground the table with a soft shadow
+  const key = new THREE.DirectionalLight(0xffffff, 0.9);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.radius = 10;
-  key.shadow.blurSamples = 20;
+  key.shadow.radius = 22;
+  key.shadow.blurSamples = 25;
   key.shadow.bias = -0.0002;
   key.shadow.normalBias = 0.015;
   scene.add(key, key.target);
@@ -57,6 +64,11 @@ export function createStudio(renderer: THREE.WebGLRenderer, scene: THREE.Scene, 
 
   return {
     key, ready,
+    rig(width: number, depth: number, top: number) {   // metres, three's y-up frame
+      panel.width = width * 0.92; panel.height = depth * 0.92;
+      panel.position.set(0, top - 0.03, 0);
+      panel.lookAt(0, 0, 0);
+    },
     fit(span: number, centre = new THREE.Vector3()) {
       key.position.copy(centre).add(new THREE.Vector3(-2.2, 5, 2.8).multiplyScalar(span));
       key.target.position.copy(centre);
