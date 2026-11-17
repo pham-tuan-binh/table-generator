@@ -24,6 +24,7 @@ ap.add_argument('menagerie'); ap.add_argument('out')
 ap.add_argument('--seeds', type=int, nargs='+', default=[1, 2, 3, 4, 5, 6, 7])
 ap.add_argument('--seconds', type=float, default=60)
 ap.add_argument('--fps', type=int, default=30)
+ap.add_argument('--balanced', action='store_true', help='blocks split evenly between the arms (the web loop)')
 ap.add_argument('--preview', help='also write an MP4 from MuJoCo, to check the run (MUJOCO_GL=egl)')
 ap.add_argument('--blocks', default=str(Path(__file__).resolve().parents[2] / 'public/toyblocks/blocks.json'))
 args = ap.parse_args()
@@ -113,13 +114,15 @@ def rng(seed):
         return s[0] / 4294967296
     return r
 
-def scene(seed):
+def scene(seed, balanced=False):
     r = rng(seed); pick = lambda a: a[int(r() * len(a))]
     n = 7 + int(r() * 2); pieces = []; used = set()
     for i in range(n):
         tries = 0
         while True:
             spot = np.array([(r() * 2 - 1) * 0.4, -0.13 - r() * 0.23]); tries += 1
+            # the long web loop: blocks alternate sides so both arms always have some, all within easy reach
+            if balanced: spot[0] = (1 if i % 2 else -1) * (SIZE * 1.6 + r() * (0.31 - SIZE * 1.6))
             if tries >= 300 or not (np.linalg.norm(spot - TOWER) < SIZE * 2.6 or any(np.linalg.norm(p['spot'] - spot) < SIZE * 2.2 for p in pieces) or abs(spot[0]) < SIZE * 1.5): break
         while True:
             g = pick(LETTERS) if i < 5 else pick(DIGITS)
@@ -224,11 +227,12 @@ def lift_pos(K, q):
     p, _ = K.fk(q); p = p.copy(); return lambda t: p + np.array([0, 0, 0.10 * minjerk(t)])
 
 def run(seed):
-    pieces = scene(seed); n = len(pieces)
+    pieces = scene(seed, args.balanced); n = len(pieces)
     m = build(n); d = mujoco.MjData(m)
     kin = [Kin(m, k) for k in range(2)]
     bq = [m.jnt_qposadr[m.body(f'b{i}').jntadr[0]] for i in range(n)]
     grip_q = [m.jnt_qposadr[m.joint(f'a{k}_left_finger').id] for k in range(2)]
+    bbody = [m.body(f'b{i}').id for i in range(n)]
     grip_q2 = [m.jnt_qposadr[m.joint(f'a{k}_right_finger').id] for k in range(2)]
     act = [m.actuator(f'a{k}_gripper').id for k in range(2)]
     for i, p in enumerate(pieces):
@@ -277,7 +281,7 @@ def run(seed):
     moves += extra
 
     # each arm's current move, planned when it starts, from where things really are
-    cur = [None, None]; q_cmd = [home[0].copy(), home[1].copy()]; g_cmd = [OPEN, OPEN]; claimed = [False, False]
+    cur = [None, None]; q_cmd = [home[0].copy(), home[1].copy()]; g_cmd = [OPEN, OPEN]; claimed = [False, False]; waiting = [None, None]
     def plan_move(mv):
         a, i = mv['arm'], mv['piece']; K = kin[a]
         bp = d.qpos[bq[i]:bq[i] + 3].copy(); byaw = block_yaw(d.qpos[bq[i] + 3:bq[i] + 7])
@@ -375,6 +379,18 @@ def run(seed):
         else: qs = mv['back'][::10] if mv['back'] is not None else [mv['qu'] + (home[a] - mv['qu']) * k / 8 for k in range(9)]
         return any(in_zone(a, q) for q in qs)
 
+    f6 = np.zeros(6)
+    def pressed(i):
+        """how hard block i is pushed onto the worktop or other blocks (N)"""
+        tot = 0.0
+        for c in range(d.ncon):
+            con = d.contact[c]; b1, b2 = m.geom_bodyid[con.geom1], m.geom_bodyid[con.geom2]
+            if bbody[i] not in (b1, b2): continue
+            other = b2 if b1 == bbody[i] else b1
+            if other != 0 and other not in bbody: continue
+            mujoco.mj_contactForce(m, d, c, f6); tot += abs(f6[0])
+        return tot
+
     def ref(a, now):
         """joint targets and finger target for arm a at time now"""
         mv = cur[a]
@@ -389,10 +405,13 @@ def run(seed):
             if name == 'carry' and 'aim' not in mv: aim(a, mv)
             if name == 'home' and 'back' not in mv: prep_back(a, mv)
             needs = enters_zone(a, mv, name)
-            if needs and claimed[1 - a]:
+            # and it takes turns: a hand that has been waiting goes before the one just leaving
+            other_first = waiting[1 - a] is not None and not claimed[a] and (waiting[1 - a], 1 - a) < (waiting[a] if waiting[a] is not None else now, a)
+            if needs and (claimed[1 - a] or other_first):
+                if waiting[a] is None: waiting[a] = now
                 mv['delay'] = mv.get('delay', 0.0) + DT
                 return q_cmd[a], g_cmd[a]
-            if needs: claimed[a] = True
+            if needs: claimed[a] = True; waiting[a] = None
             mv['entered'] = idx; mv['inzone'] = needs
         s = minjerk(u / T); tau = min(1.0, u / T)
         if name == 'to': return mv['q0'] + (mv['qh'] - mv['q0']) * s, OPEN
@@ -400,6 +419,11 @@ def run(seed):
         if name == 'close': return mv['down'][-1], OPEN + (SQUEEZE - OPEN) * s
         if name == 'carry':
             if 'aim' not in mv: aim(a, mv)
+            # set down early on whatever is really there: the held block pressing on the worktop or
+            # another block means stop here, never push it through
+            if tau > 0.5 and 'halt' not in mv and pressed(mv['block']) > 3.0:
+                q = q_cmd[a].copy(); K = kin[a]
+                mv.update(halt=now, aim2=True, final=(now, 1.0, np.array([q, q])), up=trace(K, q, lift_pos(K, q), lambda t, y=mv['yp']: y))
             if tau >= 0.7 and 'aim2' not in mv: reaim(a, mv, now, T * 0.3)
             if 'final' in mv and now >= mv['final'][0]: return sample(mv['final'][2], (now - mv['final'][0]) / mv['final'][1]), SQUEEZE
             return sample(mv['carry'], tau), SQUEEZE
@@ -427,7 +451,10 @@ def run(seed):
     for step in range(steps + 1):
         now = step * DT
         for a in range(2):
-            if cur[a] is not None and now >= cur[a]['start'] + cur[a].get('delay', 0.0) + MOVE: cur[a] = None
+            if cur[a] is not None and now >= cur[a]['start'] + cur[a].get('delay', 0.0) + MOVE:
+                cur[a] = None
+                # back home and out of the middle: hand it over before the next move can keep it
+                if claimed[a] and not in_zone(a, q_cmd[a]): claimed[a] = False
             if cur[a] is None:
                 nxt = next((x for x in pending if x['arm'] == a and x['start'] <= now), None)
                 if nxt:

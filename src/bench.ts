@@ -92,8 +92,15 @@ function readableTurn(g: THREE.BufferGeometry): THREE.Quaternion {
 // joints and fingers, and every block's pose, in this rig's frame. Played back, nothing is
 // scripted: blocks only move because the fingers squeezed and carried them.
 export interface Recording { fps: number; frames: number; size: number; glyphs: string[]; data: Int16Array; stride: number }
-export async function loadRecording(url: string): Promise<Recording> {
-  const [h, buf] = await Promise.all([fetch(url + '.json').then(r => r.json()), fetch(url + '.bin').then(r => r.arrayBuffer())]);
+export async function loadRecording(url: string, gz = false): Promise<Recording> {
+  const bin = gz
+    // a server may already have unpacked it (Content-Encoding): only unzip what still starts with the gzip magic
+    ? fetch(url + '.bin.gz').then(r => r.arrayBuffer()).then(b => {
+        const u = new Uint8Array(b);
+        return u[0] === 0x1f && u[1] === 0x8b ? new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer() : b;
+      })
+    : fetch(url + '.bin').then(r => r.arrayBuffer());
+  const [h, buf] = await Promise.all([fetch(url + '.json').then(r => r.json()), bin]);
   return { ...h, data: new Int16Array(buf), stride: 16 + 7 * h.glyphs.length };
 }
 const ARM_JOINTS = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6'];
@@ -177,6 +184,8 @@ export class Bench {
   private loop = 0;
 
   private rec: Recording | null = null;
+  /** play a recording round and round (the web), rather than hold its last frame (the video) */
+  looping = false;
   private qa = new THREE.Quaternion(); private qb = new THREE.Quaternion();
 
   constructor(private kit: Kit, mats: { body: THREE.Material; dark: THREE.Material }, seed = 1, shadows = true, count = 4, rec: Recording | null = null) {
@@ -261,7 +270,9 @@ export class Bench {
 
   // a recorded frame, interpolated between the two nearest samples; past the end it holds still
   private play(time: number) {
-    const r = this.rec!, x = Math.min(r.frames - 1, Math.max(0, time * r.fps)), i0 = Math.floor(x), i1 = Math.min(r.frames - 1, i0 + 1), k = x - i0;
+    const r = this.rec!;
+    if (this.looping) time = ((time % this.loop) + this.loop) % this.loop;
+    const x = Math.min(r.frames - 1, Math.max(0, time * r.fps)), i0 = Math.floor(x), i1 = Math.min(r.frames - 1, i0 + 1), k = x - i0;
     const at = (c: number) => r.data[i0 * r.stride + c] * (1 - k) + r.data[i1 * r.stride + c] * k;
     for (let a = 0; a < 2; a++) {
       const q: Q = {}, o = a * 8;

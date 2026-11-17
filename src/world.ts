@@ -8,7 +8,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { createStudio } from './studio.ts';
-import { Bench, loadKit, BENCH_MIN_WIDTH } from './bench.ts';
+import { Bench, loadKit, loadRecording, BENCH_MIN_WIDTH } from './bench.ts';
 import { Model, Part, V3 } from './model.ts';
 import { partGeometries } from './geometry.ts';
 import { Face } from './params.ts';
@@ -71,7 +71,11 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     body: new THREE.MeshPhysicalMaterial({ color: 0xf2f1ee, metalness: 0.05, roughness: 0.45, clearcoat: 0.2 }),   // white shells
     dark: new THREE.MeshPhysicalMaterial({ color: 0x17181b, metalness: 0.35, roughness: 0.45 }),     // anodised black: base, joints, wrist, gripper
   };
-  loadKit(new URL('robots/yam/', document.baseURI).href, new URL('toyblocks/', document.baseURI).href, 'hero').then(kit => { bench = new Bench(kit, armMats); root.add(bench.group); placeBench(); }).catch(e => console.warn('arms:', e));
+  // the arms replay a MuJoCo run (video/physics/sim.py): real grip and contact, nine minutes, looped
+  const url = (u: string) => new URL(u, document.baseURI).href;
+  Promise.all([loadKit(url('robots/yam/'), url('toyblocks/'), 'hero'), loadRecording(url('bench/web'), true).catch(e => { console.warn('recording:', e); return null; })])
+    .then(([kit, rec]) => { bench = new Bench(kit, armMats, 1, true, 4, rec); bench.looping = true; root.add(bench.group); placeBench(); })
+    .catch(e => console.warn('arms:', e));
   function placeBench() {
     if (!bench || !model) return;
     const legs = model.profs.legs.s;
