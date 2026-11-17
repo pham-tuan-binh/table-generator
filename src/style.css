@@ -129,11 +129,15 @@ details.more>summary{width:36px;padding:0}
 .pip-view{aspect-ratio:16/9;border-radius:var(--r-surface);border:1px solid var(--w30);box-shadow:0 10px 30px -12px rgba(0,20,80,.5);overflow:hidden;position:relative}
 .pip-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 /* the cameras as tabs, on the view itself */
-/* the controls only appear over the view, on hover: arrows to step through cameras, close in the corner */
-.pip-btn{position:absolute;width:30px;height:30px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;cursor:pointer;color:#fff;background:rgba(10,24,80,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;transition:opacity .18s,background .15s}
-.pip-btn:hover{background:rgba(10,24,80,.7)}.pip-btn svg{width:13px;height:13px}
-.pip-prev{left:8px;top:50%;transform:translateY(-50%)}.pip-next{right:8px;top:50%;transform:translateY(-50%)}
-.pip-close{right:8px;top:8px;width:26px;height:26px}.pip-close svg{width:11px;height:11px}
+/* the controls only appear over the view, on hover, as soft shade: a fade from each side edge
+   behind its chevron, a fade from the top-right corner behind the close mark. One icon size. */
+.pip-btn{position:absolute;border:0;padding:0;margin:0;color:#fff;cursor:pointer;display:grid;opacity:0;transition:opacity .18s;--shade:rgba(4,14,50,.55)}
+.pip-btn svg{width:16px;height:16px;stroke-width:2;transition:transform .15s}
+.pip-btn:hover svg{transform:scale(1.15)}
+.pip-prev,.pip-next{top:0;bottom:0;width:64px;align-items:center}
+.pip-prev{left:0;justify-items:start;padding-left:14px;background:linear-gradient(90deg,var(--shade),transparent);border-radius:var(--r-surface) 0 0 var(--r-surface)}
+.pip-next{right:0;justify-items:end;padding-right:14px;background:linear-gradient(270deg,var(--shade),transparent);border-radius:0 var(--r-surface) var(--r-surface) 0}
+.pip-close{top:0;right:0;width:72px;height:72px;z-index:1;align-items:start;justify-items:end;padding:14px 14px 0 0;background:radial-gradient(circle at 100% 0,var(--shade),transparent 72%);border-radius:0 var(--r-surface) 0 0}
 .pip-name{position:absolute;left:12px;bottom:10px;color:#fff;font-weight:500;font-size:13px;text-shadow:0 1px 6px rgba(0,10,40,.6);opacity:0;transition:opacity .18s;pointer-events:none}
 .pip:hover .pip-btn,.pip:hover .pip-name,.pip:focus-within .pip-btn,.pip:focus-within .pip-name{opacity:1}
 .pip[data-single] .pip-prev,.pip[data-single] .pip-next{display:none}

@@ -133,6 +133,7 @@ function episode(pieces: Piece[], seed: number, size: number, t0: number): Episo
 // ------------------------------------------------------------------ one bench
 const ease = (x: number) => { x = Math.min(1, Math.max(0, x)); return x * x * x * (x * (x * 6 - 15) + 10); };
 const mix = (a: Q, b: Q, k: number) => { const e = ease(k), o: Q = {}; for (const n in a) o[n] = a[n] + ((b[n] ?? a[n]) - a[n]) * e; return o; };
+const PLANS = new Map<string, { pieces: Piece[]; episodes: Episode[]; moves: Move[]; loop: number }>();
 let armZ = 0;   // the arms' bases are lifted so their plates sit on the worktop
 const rigFromArm = (arm: number) => new THREE.Matrix4().makeTranslation(BASES[arm][0], BASES[arm][1], armZ).multiply(new THREE.Matrix4().makeRotationZ(YAW)).multiply(new THREE.Matrix4().makeScale(1000, 1000, 1000));
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -157,7 +158,7 @@ export class Bench {
   group = new THREE.Group();   // origin: the worktop surface centre
   rig = new THREE.Group();     // origin: midway between the arm bases
   arms: Arm[] = [];
-  private pieces: Piece[];
+  private pieces: Piece[] = [];
   private blocks: THREE.Group[] = [];
   private shadows: THREE.Mesh[] = [];
   private moves: Move[] = [];
@@ -176,13 +177,17 @@ export class Bench {
       this.rig.add(arm.root);
       this.arms.push(arm);
     }
-    // one scene, episodes back to back; each leaves the scene as it found it
-    const size = kit.blocks.size;
-    this.pieces = makeScene(seed, size);
-    let t = 0;
-    for (let e = 0; e < count; e++) { const ep = episode(this.pieces, seed * 101 + e, size, t); this.episodes.push(ep); t = ep.end; }
-    this.loop = t;
-    this.moves = this.episodes.flatMap(e => e.moves);
+    // one scene, episodes back to back; each leaves the scene as it found it. Plans depend
+    // only on the seed, so benches with the same seed share them
+    const size = kit.blocks.size, key = `${seed}/${count}`, cached = PLANS.get(key);
+    if (cached) Object.assign(this, { pieces: cached.pieces, episodes: cached.episodes, moves: cached.moves, loop: cached.loop });
+    else {
+      this.pieces = makeScene(seed, size);
+      let t = 0;
+      for (let e = 0; e < count; e++) { const ep = episode(this.pieces, seed * 101 + e, size, t); this.episodes.push(ep); t = ep.end; }
+      this.loop = t;
+      this.moves = this.episodes.flatMap(e => e.moves);
+    }
     for (const p of this.pieces) {
       const g = new THREE.Group();
       const body = new THREE.Mesh(kit.blocks.body, kit.blocks.mats.body);
@@ -196,7 +201,7 @@ export class Bench {
       this.shadows.push(sh);
     }
     for (const a of this.arms) { const sh = blob(190); sh.position.set(a.root.position.x, a.root.position.y - 30, 0.4); (sh.material as THREE.MeshBasicMaterial).opacity = 0.45; this.rig.add(sh); }
-    for (const m of this.moves) this.planMove(m);
+    if (!cached) { for (const m of this.moves) this.planMove(m); PLANS.set(key, { pieces: this.pieces, episodes: this.episodes, moves: this.moves, loop: this.loop }); }
   }
 
   // IK at the five waypoints of a move. The wrist roll is chosen twice: at the grasp, so the
