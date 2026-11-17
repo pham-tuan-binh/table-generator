@@ -163,14 +163,18 @@ class Kin:
         """solve, and if the solver stalls against a limit, start again with the wrist already
         rolled to the yaw (the roll maps one to one onto the yaw once the gripper points down)"""
         best = None
-        seeds = [q]
+        # start from here, from a relaxed pose, and from that pose already turned toward the target
+        base = self.d.xpos[self.m.body(f'a{self.k}_arm').id] if False else None
+        turn = np.array([0, 0.9, 1.1, -1.2, 0, 0.0]); seeds = [q, turn.copy()]
+        for j1 in np.linspace(-1.2, 1.2, 5): t_ = turn.copy(); t_[0] = j1; seeds.append(t_)
         q0 = self.solve(q, pos, self.tool_x(q), iters=80)
         for sg in (1, -1):
             s = q0.copy(); s[5] = wrap(q0[5] + sg * wrap(yaw - self.tool_x(q0))); seeds.append(s)
         for s in seeds:
             r = self.solve(s, pos, yaw, iters=120)
             p, R = self.fk(r); e = np.linalg.norm(p - pos) + 0.05 * np.linalg.norm(R[:, 0] - self.target(yaw)[:, 0])
-            if best is None or e < best[0]: best = (e, r)
+            if best is None or e < best[0] - 1e-4: best = (e, r)
+            if e < 1e-4 and s is seeds[0]: break
         return best[1], best[0]
     def tool_x(self, q):
         _, R = self.fk(q); return math.atan2(R[1, 0], R[0, 0])
@@ -191,6 +195,7 @@ def block_yaw(quat):
 PHASES = [('to', 1.2), ('down', 0.55), ('close', 0.45), ('carry', 2.0), ('open', 0.4), ('up', 0.55), ('home', 1.1)]
 MOVE = sum(t for _, t in PHASES)
 REACH, CLOSE, CARRY = 0.9 + 0.45, 0.4, 1.6    # for the report
+ZONE = 0.15        # m either side of the middle: only one hand at a time in there
 SLOT = 1.6         # the next move may start this long after one starts (the tower is clear by then)
 
 N_PATH = 150
@@ -272,7 +277,7 @@ def run(seed):
     moves += extra
 
     # each arm's current move, planned when it starts, from where things really are
-    cur = [None, None]; q_cmd = [home[0].copy(), home[1].copy()]
+    cur = [None, None]; q_cmd = [home[0].copy(), home[1].copy()]; g_cmd = [OPEN, OPEN]; claimed = [False, False]
     def plan_move(mv):
         a, i = mv['arm'], mv['piece']; K = kin[a]
         bp = d.qpos[bq[i]:bq[i] + 3].copy(); byaw = block_yaw(d.qpos[bq[i] + 3:bq[i] + 7])
@@ -348,14 +353,47 @@ def run(seed):
         mv['final'] = (now, rest, path); mv['yp'] = y1
         mv['up'] = trace(K, path[-1], lift_pos(K, path[-1]), lambda t, y=y1: y)
 
+    def prep_back(a, mv):
+        """home along a curve that only rises then falls back to the rest pose: it cannot dip into the tower"""
+        K = kin[a]; q = q_cmd[a].copy(); p, _ = K.fk(q); y0 = K.tool_x(q); yh = K.tool_x(home[a])
+        yh = y0 + wrap(yh - y0); top = max(p[2], home_pos[a][2]) + 0.03
+        c = bezier(p.copy(), home_pos[a], top - p[2], top - home_pos[a][2])
+        mv['back'] = trace(K, q, lambda t: c(minjerk(t)), lambda t: y0 + (yh - y0) * minjerk(t))
+        mv['qu'] = q
+
+    wrist = [m.body(f'a{k}_link_5').id for k in range(2)]
+    def in_zone(a, q):
+        """the hand or the wrist behind it in the middle (a wrist swings across when its hand works the tower)"""
+        p, _ = kin[a].fk(q); return abs(p[0]) < ZONE or abs(kin[a].d.xpos[wrist[a]][0]) < ZONE
+    def enters_zone(a, mv, name):
+        if name == 'to': qs = [mv['q0'] + (mv['qh'] - mv['q0']) * k / 8 for k in range(9)]
+        elif name == 'down': qs = mv['down'][::10]
+        elif name == 'close': qs = [mv['down'][-1]]
+        elif name == 'carry': qs = mv['carry'][::10]
+        elif name == 'open': qs = [mv['carry'][-1]]
+        elif name == 'up': qs = mv['up'][::10] if mv['up'] is not None else [mv['carry'][-1]]
+        else: qs = mv['back'][::10] if mv['back'] is not None else [mv['qu'] + (home[a] - mv['qu']) * k / 8 for k in range(9)]
+        return any(in_zone(a, q) for q in qs)
+
     def ref(a, now):
         """joint targets and finger target for arm a at time now"""
         mv = cur[a]
         if mv is None: return None
-        u = now - mv['start']
-        for name, T in PHASES:
+        u = now - mv['start'] - mv.get('delay', 0.0)
+        for idx, (name, T) in enumerate(PHASES):
             if u < T or name == 'home': break
             u -= T
+        # the middle of the table holds one hand at a time: a phase that would bring this hand
+        # in waits, at rest, until the other hand has left
+        if idx > mv.get('entered', -1):
+            if name == 'carry' and 'aim' not in mv: aim(a, mv)
+            if name == 'home' and 'back' not in mv: prep_back(a, mv)
+            needs = enters_zone(a, mv, name)
+            if needs and claimed[1 - a]:
+                mv['delay'] = mv.get('delay', 0.0) + DT
+                return q_cmd[a], g_cmd[a]
+            if needs: claimed[a] = True
+            mv['entered'] = idx; mv['inzone'] = needs
         s = minjerk(u / T); tau = min(1.0, u / T)
         if name == 'to': return mv['q0'] + (mv['qh'] - mv['q0']) * s, OPEN
         if name == 'down': return sample(mv['down'], tau), OPEN
@@ -369,14 +407,6 @@ def run(seed):
             mv['carry'] = mv['final'][2]; mv['patched'] = True
         if name == 'open': return mv['carry'][-1], SQUEEZE + (OPEN - SQUEEZE) * s
         if name == 'up': return (sample(mv['up'], tau) if mv['up'] is not None else mv['carry'][-1]), OPEN
-        # home along a curve that only rises then falls back to the rest pose: it cannot dip into the tower
-        if 'back' not in mv:
-            K = kin[a]; q = q_cmd[a].copy(); p, _ = K.fk(q); y0 = K.tool_x(q); yh = K.tool_x(home[a])
-            yh = y0 + wrap(yh - y0); top = max(p[2], home_pos[a][2]) + 0.03
-            c = bezier(p.copy(), home_pos[a], top - p[2], top - home_pos[a][2])
-            mv['back'] = trace(K, q, lambda t: c(minjerk(t)), lambda t: y0 + (yh - y0) * minjerk(t))
-            if mv['back'] is None: print(f'  ! way home for arm {a} would flip; going in joint space')
-            mv['qu'] = q
         if mv['back'] is not None: return sample(mv['back'], tau), OPEN
         return mv['qu'] + (home[a] - mv['qu']) * s, OPEN
 
@@ -391,26 +421,59 @@ def run(seed):
             c = mujoco.MjvCamera(); c.azimuth, c.elevation, c.distance = az, el, dist; c.lookat[:] = look; cams.append(c)
         ff = subprocess.Popen(['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{W}x{H}', '-r', str(args.fps), '-i', '-',
                                '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '22', args.preview.replace('.mp4', f'_{seed}.mp4')], stdin=subprocess.PIPE)
-    lvl = {}
+    lvl = {}; live_r = rng(seed * 13 + 5)
     frames = []; every = round(1 / (args.fps * DT)); steps = int(args.seconds / DT)
     pending = sorted(moves, key=lambda x: x['start'])
     for step in range(steps + 1):
         now = step * DT
         for a in range(2):
-            if cur[a] is not None and now >= cur[a]['start'] + MOVE: cur[a] = None
+            if cur[a] is not None and now >= cur[a]['start'] + cur[a].get('delay', 0.0) + MOVE: cur[a] = None
             if cur[a] is None:
                 nxt = next((x for x in pending if x['arm'] == a and x['start'] <= now), None)
                 if nxt:
-                    pending.remove(nxt); plan_move(nxt)
+                    # its clock starts when the arm takes it (the last move may have run late)
+                    pending.remove(nxt); nxt['start'] = now; plan_move(nxt)
                     if not nxt.get('skip'): cur[a] = nxt
+                elif now > 0.6 and step % 25 == 0:
+                    # free, and the next task is a whole move away: keep busy turning a spare block
+                    soon = min([x['start'] for x in pending if x['arm'] == a] + [1e9])
+                    if soon - now > MOVE + 0.3:
+                        busy = {x['piece'] for x in pending if x['start'] < now + MOVE + 1} | {c_['block'] for c_ in cur if c_ is not None and 'block' in c_}
+                        spare = [i for i in range(n) if (d.qpos[bq[i]] < 0) == (a == 0) and abs(d.qpos[bq[i]]) > 0.06 and i not in busy and d.qpos[bq[i] + 2] < SIZE]
+                        if spare:
+                            mv = {'arm': a, 'piece': spare[int(live_r() * len(spare))], 'kind': 'turn', 'level': 0, 'start': now, 'dir': 1 if live_r() < 0.5 else -1}
+                            plan_move(mv)
+                            if not mv.get('skip'): cur[a] = mv; moves.append(mv)
             r = ref(a, now)
             q, g = r if r is not None else (home[a], OPEN)
             # drive the joints by velocity onto the path; overwriting positions would hide the
             # hand's motion from the contact solver and blocks would slip out of the grip
-            if np.abs(q - q_cmd[a]).max() > 0.05: print(f'  ! arm {a} path jumps {np.abs(q - q_cmd[a]).max():.2f} rad at {now:.2f} s')
-            q_cmd[a] = q
+            if np.abs(q - q_cmd[a]).max() > 0.05:
+                mv_ = cur[a]; info = ''
+                if mv_ is not None:
+                    u_ = now - mv_['start'] - mv_.get('delay', 0.0)
+                    for nm_, T_ in PHASES:
+                        if u_ < T_: break
+                        u_ -= T_
+                    info = f"{mv_['kind']} {pieces[mv_['piece']]['glyph']} phase {nm_} u {u_:.2f}"
+                    if DEBUG: info += f" q_cmd {q_cmd[a].round(2)} q {q.round(2)} q0 {mv_.get('q0', np.zeros(6)).round(2)} qh {mv_.get('qh', np.zeros(6)).round(2)} delay {mv_.get('delay', 0):.2f} start {mv_['start']:.2f}"
+                print(f'  ! arm {a} path jumps {np.abs(q - q_cmd[a]).max():.2f} rad at {now:.2f} s ({info})')
+            q_cmd[a] = q; g_cmd[a] = g
+            if claimed[a] and not (cur[a] is not None and cur[a].get('inzone')) and not in_zone(a, q): claimed[a] = False
             d.qvel[kin[a].v] = np.clip((q - d.qpos[kin[a].q]) / DT, -6, 6)
             d.ctrl[act[a]] = g
+        if DEBUG and step % 100 == 0 and 3.0 <= now <= 7.0:
+            px = [kin[k].fk(q_cmd[k])[0] for k in range(2)]
+            ph = []
+            for k in range(2):
+                mv_ = cur[k]
+                if mv_ is None: ph.append('idle'); continue
+                u_ = now - mv_['start'] - mv_.get('delay', 0.0); nm = 'home'
+                for nm, T_ in PHASES:
+                    if u_ < T_: break
+                    u_ -= T_
+                ph.append(f"{mv_['kind']}:{nm}")
+            print(f'    {now:.1f}s hands x {px[0][0]*1000:+.0f} / {px[1][0]*1000:+.0f} mm, gap {np.linalg.norm(px[0]-px[1])*1000:.0f}; claimed {claimed}; {ph}')
         if step % 50 == 0:
             for i in range(n):
                 z = d.qpos[bq[i] + 2]; hgt = round((z - SIZE / 2) / SIZE)
