@@ -53,7 +53,7 @@ export function dxf(outline: [number, number][]): string {
 export function readme(m: Model, link = ''): string {
   const p = m.p, L: string[] = [];
   const fmt = (v: number) => `${round(v)} mm`;
-  L.push(`# Robot test table: ${round(p.width)} × ${round(p.depth)} × ${round(m.topZ)} mm`, '');
+  L.push(`# Robot eval table: ${round(p.width)} × ${round(p.depth)} × ${round(m.topZ)} mm`, '');
   if (link) L.push(`Edit this design: ${link}`, '');
   L.push(`${PROFILES[p.profile].name} table, worktop at ${fmt(m.worktopZ)}, box ${fmt(p.boxHeight)} tall on top, on ${p.base === 'feet' ? 'levelling feet' : `Ø${p.casterWheel} mm casters`}. Total mass about ${round(m.mass)} kg.`, '');
   L.push(`## Files`, '',

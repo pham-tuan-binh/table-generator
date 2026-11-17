@@ -234,12 +234,28 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     }
     return { part: e.part, place, screen: [cx, cy] };
   }
+  const FLOOR = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  function pointAt(cx: number, cy: number): V3 | null {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects(entries.filter(e => e.mesh.visible && e.part.kind !== 'camera').map(e => e.mesh), false)[0];
+    // nothing under the pointer: aim at the floor, so the aim never sticks past an edge
+    if (!hit) {
+      const r = ray.ray.clone().applyMatrix4(root.matrixWorld.clone().invert()), q = new THREE.Vector3();
+      return r.intersectPlane(FLOOR, q) && q.length() < 20000 ? [q.x, q.y, q.z] : null;
+    }
+    const p = root.worldToLocal(hit.point.clone());
+    return [p.x, p.y, p.z];
+  }
+  let aiming: { pick: (p: V3) => void; move: (p: V3) => void } | null = null;
   let down: [number, number] | null = null, moveQueued: PointerEvent | null = null;
   renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
   renderer.domElement.addEventListener('pointermove', e => { moveQueued = e; });
   renderer.domElement.addEventListener('pointerleave', () => { if (hovered) { hovered = null; apply(); opts.onHover?.(null); } });
   renderer.domElement.addEventListener('pointerup', e => {
     if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    if (aiming) { const pt = pointAt(e.clientX, e.clientY); if (pt) aiming.pick(pt); return; }
     const h = hitAt(e.clientX, e.clientY, !!placing);
     if (placing) { if (h?.place) placing(h.place); return; }
     selected = h ? h.part.id : null;
@@ -250,6 +266,7 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     if (!moveQueued) return;
     const e = moveQueued; moveQueued = null;
     if (e.buttons) return;
+    if (aiming) { const pt = pointAt(e.clientX, e.clientY); renderer.domElement.style.cursor = 'crosshair'; if (pt) aiming.move(pt); return; }
     const h = hitAt(e.clientX, e.clientY, !!placing), id = h ? h.part.id : null;
     renderer.domElement.style.cursor = h ? (placing ? 'crosshair' : 'pointer') : placing ? 'crosshair' : '';
     if (id !== hovered) { hovered = id; apply(); }
@@ -346,6 +363,8 @@ export function createWorld(el: HTMLElement, opts: { onHover?: (h: Hit | null) =
     select(id: string | null) { selected = id; apply(); },
     showCamera(id: string | null, elOut: HTMLElement | null) { pipCam = id; pipEl = elOut; apply(); },
     placeMode(cb: ((h: PlaceHit) => void) | null) { placing = cb; renderer.domElement.style.cursor = cb ? 'crosshair' : ''; },
+    /** aim mode: move(p) follows the pointer over any surface, pick(p) on click; null ends it */
+    aimMode(m: { pick: (p: V3) => void; move: (p: V3) => void } | null) { aiming = m; renderer.domElement.style.cursor = m ? 'crosshair' : ''; },
     focus(id: string) {
       const es = entries.filter(e => e.part.id === id);
       if (!es.length) return;
